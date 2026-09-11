@@ -49,7 +49,22 @@ function loadConfig() {
   console.log(`arena: ${N_BANDS} bands, ${arena.neurons.toLocaleString()} medulla inputs (${arena.inputTypes.join(' ')})`);
 
   // ── what the market looks like ──────────────────────────────────────────────────────────────
-  const prev = lighter.loadPrevious();
+  //
+  // WARMUP, so the fly can act on its FIRST pass instead of its second.
+  //
+  // The window the fly sees is the gap between snapshots, so with nothing on disk every market is
+  // motionless, nothing smells of anything and the fly has no reason to do a thing. That is correct
+  // behaviour and it costs a whole pass interval. On a cold start we take a snapshot, wait, and take
+  // another, which buys a real window in seconds rather than minutes — the fly is then deciding on
+  // actual movement the first time it opens its eyes.
+  let prev = lighter.loadPrevious();
+  const warmup = Number(arg('warmup', 0));
+  if (!prev && warmup > 0) {
+    console.log(`cold start: taking a snapshot, waiting ${warmup}s for a window, then looking`);
+    prev = await lighter.snapshot();
+    lighter.savePrevious(prev);
+    await new Promise((r) => setTimeout(r, warmup * 1000));
+  }
   const snap = await lighter.snapshot();
   const markets = lighter.toArena(snap, prev);
   const seats = seatMarkets(markets);
@@ -92,7 +107,11 @@ function loadConfig() {
   const pass = runPass(brain, arena, seats, markets, { ms, seed, ctx, heading0, raster: { capacity: 400000 } });
   try {
     fs.mkdirSync(path.dirname(headFile), { recursive: true });
-    fs.writeFileSync(headFile, JSON.stringify({ heading: pass.heading, at: Date.now() }));
+    // wrap it: heading is an AZIMUTH, not an odometer. Left unwrapped it reached 326 bands on a
+    // 72-band arena inside a few passes — harmless for choosing a market, since that is taken modulo
+    // the arena anyway, but it prints nonsense and grows without bound.
+    const wrapped = ((pass.heading % N_BANDS) + N_BANDS) % N_BANDS;
+    fs.writeFileSync(headFile, JSON.stringify({ heading: wrapped, at: Date.now() }));
   } catch (e) { console.error('could not record the heading:', e.message); }
   const d = decide(brain, pass.result);
 

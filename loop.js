@@ -16,16 +16,24 @@ const { spawn } = require('child_process');
 const path = require('path');
 
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : d; };
-const every = Number(arg('every', 60)) * 1000;
+const every = Number(arg('every', 180)) * 1000;
 const ms = arg('ms', '400');
+const warmupS = Number(arg('warmup', 20));
+// --broadcast has to reach the child or the loop can never trade; it is listed explicitly rather
+// than forwarded wholesale so nothing else leaks through by accident
+const passthrough = ['--broadcast'];
 
 let n = 0, failures = 0;
 
 function pass() {
   n++;
   const seed = n;   // a different fly each pass, and the seed is published with the result
-  const p = spawn(process.execPath, [path.join(__dirname, 'fly.js'), '--ms', ms, '--seed', String(seed)],
-                  { stdio: ['ignore', 'pipe', 'pipe'] });
+  const args = [path.join(__dirname, 'fly.js'), '--ms', ms, '--seed', String(seed)];
+  // the first pass warms up so the fly has a real window to look at, and can act inside a minute
+  // instead of waiting a whole interval for its second pass
+  if (n === 1) args.push('--warmup', String(warmupS));
+  for (const f of passthrough) if (process.argv.includes(f)) args.push(f);
+  const p = spawn(process.execPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   p.stdout.on('data', (d) => { out += d; });
   p.stderr.on('data', (d) => { out += d; });
@@ -43,5 +51,7 @@ function pass() {
   });
 }
 
-console.log(`fly loop: a pass every ${every / 1000}s, ${ms}ms of fly time each. Ctrl-C to stop.`);
+console.log(`fly loop: a pass every ${every / 1000}s, ${ms}ms of fly time each` +
+  `, ${warmupS}s warmup on the first` +
+  (process.argv.includes('--broadcast') ? ', BROADCAST ON' : ', dry') + '. Ctrl-C to stop.');
 pass();

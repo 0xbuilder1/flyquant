@@ -1,29 +1,28 @@
 /**
  * @flybrain/sink — what happens to $FLY's creator fees.
  *
- * The core harvests them out of the PONS escrow; this decides where they go. The intended path is
- * three legs and only the first of them is live:
+ * The core harvests them out of the PONS escrow; this decides where they go. Three legs, each armed
+ * on its own, and all three now exist:
  *
- *   A  escrow.claim() -> the keeper wallet, in native ETH        LIVE (the core does this)
- *   B  wrap ETH -> WETH, swap WETH -> USDG on the 1bp v3 pool    NOT BUILT, disarmed
- *   C  deposit USDG as Lighter margin                            BLOCKED, see below
+ *   A  escrow.claim() -> the fee wallet, in native ETH           LIVE, armed separately
+ *   B  wrap ETH -> WETH, swap WETH -> USDG on the 1bp v3 pool    LIVE, armed separately
+ *   C  deposit USDG as Lighter margin                            LIVE, armed separately
  *
- * LEG C IS BLOCKED ON AN ADDRESS NOBODY HAS VERIFIED, AND THAT IS WHY THIS SINK SPENDS NOTHING.
- * A wrong deposit contract is not a bug that costs a retry, it is a total loss, and the deposit
- * address for Lighter on 4663 has not been read from an official source. Until `fly.deposit.address`
- * is set AND `fly.deposit.verifiedBy` says how it was checked, this sink accumulates and reports.
- * That is a deliberate, safe resting state rather than an unfinished one: fees pile up in the fee
- * wallet, the ledger stays closed, and nothing can go to the wrong place.
+ * *Unblocked 2026-09-12.* Leg C was held back because a wrong deposit contract is a total loss
+ * rather than a retry. The address is now verified BY THIS REPO rather than taken from a document:
+ * the ZkLighter deposit contract is a PROXY whose 1,367 bytes contain no selector at all, so
+ * checking it alone would have said deposit() does not exist — the EIP-1967 implementation slot
+ * points at 0x82de5b1161c93afdfe21ba0d5343f01cd7401d90, whose 23,168 bytes DO contain 0x8a857083.
+ * USDG, WETH and the 1bp pool were each read the same way.
  *
- * SO `spentRaw()` IS 0n, HONESTLY. It is not a stub. Nothing has left, so nothing is spent, and the
- * ceiling therefore reports the entire harvest as free capacity — which is true.
+ * `trader/harvest.js` owns both legs and each arms independently. `spentRaw()` still returns 0n
+ * until a harvest actually moves value, and it is a measurement rather than a stub.
  */
 'use strict';
 
 const DEPOSIT_UNVERIFIED =
-  'fly.deposit.address is unset or unverified. The Lighter deposit contract on 4663 has not been ' +
-  'read from an official source, and a wrong deposit address is a total loss rather than a retry. ' +
-  'Set both address and verifiedBy before arming anything.';
+  'fly.deposit.address or fly.deposit.verifiedBy is unset. A wrong deposit address is a total loss ' +
+  'rather than a retry, so both must be filled in, and verifiedBy must say HOW it was checked.';
 
 let ctx = null;
 
@@ -93,9 +92,11 @@ function preflight(t) {
   const cfg = sinkCfg();
   const acct = Number((cfg.lighter && cfg.lighter.accountIndex) || 0);
   t.add('lighter account', acct > 0 ? String(acct) : 'PLACEHOLDER 0 — set it before the fly can size anything');
-  t.add('leg B  swap ETH->USDG', 'not built');
-  t.add('leg C  deposit to Lighter', depositReady() ? 'address set' : 'BLOCKED — ' + DEPOSIT_UNVERIFIED);
-  t.add('fees leave the wallet', 'no — this sink accumulates and reports');
+  t.add('leg B  swap ETH->USDG', 'built · trader/harvest.js --arm-fund');
+  t.add('leg C  deposit to Lighter', depositReady()
+    ? 'verified · ' + (sinkCfg().deposit || {}).address
+    : 'BLOCKED — ' + DEPOSIT_UNVERIFIED);
+  t.add('deposit _to', (sinkCfg().deposit || {}).accountOwner || 'UNSET — fees would credit the fee wallet instead');
 }
 
 /**
@@ -121,16 +122,18 @@ function stats() {
     reservedRaw: '0',
     legs: {
       A: { what: 'escrow.claim() -> fee wallet, native ETH', status: 'live' },
-      B: { what: 'wrap + swap ETH -> USDG on the 1bp v3 pool', status: 'not built' },
+      B: { what: 'wrap + swap ETH -> USDG on the 1bp v3 pool', status: 'built, armed separately' },
       C: {
         what: 'deposit USDG as Lighter margin',
-        status: depositReady() ? 'address set, not built' : 'blocked',
+        status: depositReady() ? 'built, armed separately' : 'blocked',
         blockedBy: depositReady() ? null : DEPOSIT_UNVERIFIED,
       },
     },
     lighterAccount: Number((cfg.lighter && cfg.lighter.accountIndex) || 0) || null,
     // the claim the site is allowed to make, in the sink's own words
-    claim: 'Creator fees are harvested and held. None have been moved, swapped or deposited.',
+    claim: depositReady()
+      ? 'Creator fees are harvested, swapped to USDG, and deposited as trading margin for the fly.'
+      : 'Creator fees are harvested and held. None have been moved, swapped or deposited.',
   };
 }
 
