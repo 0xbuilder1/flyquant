@@ -1,4 +1,4 @@
-# flybrain
+# flyquant
 
 A complete fruit fly connectome, with a wallet.
 
@@ -97,3 +97,8 @@ commit.
 MaleCNS v1.0 — Janelia FlyEM Project Team, the Cambridge Drosophila Connectomics Group (MRC LMB),
 and the Connectomics group at Google. Released 2026-09-03 under CC BY 4.0. Dynamics follow Shiu et
 al. (2024), a leaky integrate-and-fire model of the adult *Drosophila* brain.
+
+## Licence
+
+MIT for the code — see `LICENSE`. The connectome is CC BY 4.0 and the attribution is a condition
+of it, not a courtesy; see `NOTICE.md` for what is covered by what.
