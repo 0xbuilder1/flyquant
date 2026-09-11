@@ -126,22 +126,75 @@ size is somebody's money.*
 
 ## The venue
 
-Graduated coins only, in Uniswap V4 pools, through the Universal Router at
-`0x8876789976decbfcbbbe364623c63652db8c0904`. Verified on 4663: it answers
-`execute(bytes,bytes[],uint256)`, and its `poolManager()` returns `0x8366a39c…40951` — **the same
-PoolManager every mark is read from**. So the price the fly smells and the pool the fly trades in
-are provably the same pool, at the same block, and no rate is invented anywhere between them.
-Permit2 is deployed at the canonical address, which is the sell leg's approval path.
+**Lighter, on Robinhood Chain, across its whole universe.** `https://api.rh.lighter.xyz`, 57 perp
+markets: PONS and LIT, the crypto majors, US equities and the index ETFs, metals and oil, and the
+private-company perps including ANTHROPIC and OPENAI.
 
-Pre-graduation curves are out of scope for v1, deliberately. Their `buy(uint256,uint256,address)` /
-`sell(uint256,uint256,address)` entrypoints exist and are noted in `CLAUDE.md` for later, but a fly
-aping fresh launches is a fly that gets rugged on a timer, and the first version should fail for
-interesting reasons rather than that one.
+*Amended 2026-09-11, replacing Uniswap V4 memecoin swaps, and the reasons are worth keeping because
+two of them reverse an earlier decision.*
 
-**THE SIZE CAP IS DERIVED FROM DEPTH, IN THE SAME READ AS THE MARK.** `trader/marks.js` is
-`sinks/shortdesk/marks.js`, carried over because it already reads `slot0.sqrtPriceX96` and pool
-liquidity out of the PoolManager with `extsload` and already normalises decimals. A cap from stale
-depth bounds nothing, and too large is the silent direction — it shows up as a loss after the fill.
+**Fees.** The PONS perp reports `taker_fee: 0.0000` and `maker_fee: 0.0000`. The V4 path this
+replaces cost ~1% curve fee plus a 2% creator tax — about 3% a side and 6% a round trip. A fly that
+re-decides every pass off a firing rate would have been destroyed by its own churn, and that was not
+priced into the original plan.
+
+**The fly can be short.** This is the bigger reason. On a spot memecoin the fly could only buy or
+panic, MDN and DNp09 never fired in any scenario, and there was no way to take profit that was not a
+rule invented by us. A two-sided market gives backward walking somewhere to go, and closes that gap
+as biology rather than as policy.
+
+**More to smell.** `orderBookDetails` gives mark, index, open interest, daily volume and range;
+`funding-rates` gives funding; `orderBookOrders` gives depth either side of mid. Against a V4 pool,
+where the only honest reads are `slot0` and liquidity.
+
+What it costs, recorded so nobody rediscovers it as a surprise:
+
+- **No memecoins.** ANSEM and CASHCAT aside, this universe is equities, metals, majors and PONS.
+  The memecoin half of the product now lives entirely in $FLY itself, which still launches on PONS.
+- **The mark is an API and the positions are off-chain.** The no-price-feed invariant does not
+  survive this, the way it did not survive Pyth on the perp desk. Say so on the page rather than
+  keeping a sentence that stopped being true.
+- **Signing needs a compiled native library.** Lighter's signer is a `.dll` loaded through `ctypes`;
+  there is no pure-JS path. `trader/signer.py` owns the library and the API key and exposes exactly
+  one verb — place this order. The Node keeper keeps the loop, the ledger, the ceiling and the
+  honesty guard. That is the smallest surface that has to touch a key, and the framework's proven
+  safety code does not get reimplemented in a second language to suit a signing detail.
+- **Leverage kills flies.** PONS caps at ~3x (`min_initial_margin_fraction: 3333`) with a 20%
+  maintenance fraction, and it ranged 0.529 to 0.655 in one day. Position sizing has to bound
+  liquidation distance, not just notional.
+
+## The arena
+
+A fly has ONE brain. 57 markets is not 57 flies, and running the simulation once per market would be
+both 57x the cost and a lie about what the animal is.
+
+So the fly sits in **a tethered flight arena** — the standard *Drosophila* paradigm, fifty years
+old: you place stimuli at azimuths around a fixed animal and read which way it tries to turn. Every
+market gets a fixed seat, assigned once and never moved, and all 57 are present in the visual field
+at the same time in a single pass. **DNa02's left-right imbalance is what picks one.**
+
+MaleCNS makes this literal rather than metaphorical: it assigns every columnar optic-lobe neuron a
+retinotopic hex coordinate (hex1 1-36, hex2 1-39, per eye), giving **1,769 addressable columns and
+36 azimuth bands per eye — 72 seats for 57 markets.**
+
+**WE ENTER AT THE MEDULLA, NOT THE LAMINA, AND THE REASON IS NOT COSMETIC.** Two probes, both in
+`brain/probe-arena.js`, and the negative one matters more:
+
+1. Stimulating the lamina (L1/L2/L3/L5) produces **nothing** at the escape pathway. The graph says
+   why: `Mi1 <- L1` is 141,873 synapses at sign **negative**, because L1 is glutamatergic and the
+   model's coarse glutamate-is-inhibitory rule applies. That rule is *right* here — photoreceptors
+   are histaminergic and inhibit L1, so light means LESS L1 activity. Injecting current into L1 is
+   showing the fly darkness. The stimulus was wrong, not the model.
+2. Entering one layer later at the medulla — **Tm1/Tm2/Tm4/Tm9/Tm20**, which are retinotopic and are
+   LC4's own excitatory inputs — works, and the selectivity is emergent: an expanding patch fires
+   **LPLC2 34 times against 6 for a BIGGER static patch, 5.7x.** We never told it anything was
+   looming. It computed that from a patch of columns.
+
+**The escape readout therefore reads LPLC2, not DNp01.** The giant fiber does not rise above noise
+(3 to 7 spikes) on synthetic retinotopic input, and pretending otherwise would mean reporting a
+number that is not a signal. LPLC2 is the published looming-sensitive escape driver one synapse
+upstream, and it is where the signal actually is. The all-or-none rule moves with it, but it is now
+a population threshold rather than a single spike, and the site must say which.
 
 ## What the site may claim
 

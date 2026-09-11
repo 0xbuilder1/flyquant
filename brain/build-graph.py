@@ -71,12 +71,14 @@ def read_universe():
     real population is the annotated bodies carrying a superclass — ol_intrinsic, cb_intrinsic,
     descending_neuron and the rest — which comes to the ~166k the paper reports."""
     ann = feather.read_table(os.path.join(DATA, 'body-annotations.feather'),
-                             columns=['bodyId', 'type', 'class', 'superclass', 'somaSide']).to_pydict()
+                             columns=['bodyId', 'type', 'class', 'superclass', 'somaSide',
+                                      'assignedOlHex1', 'assignedOlHex2']).to_pydict()
     keep = {}
-    for body, ty, cl, sc, side in zip(ann['bodyId'], ann['type'], ann['class'],
-                                      ann['superclass'], ann['somaSide']):
+    for body, ty, cl, sc, side, h1, h2 in zip(ann['bodyId'], ann['type'], ann['class'],
+                                              ann['superclass'], ann['somaSide'],
+                                              ann['assignedOlHex1'], ann['assignedOlHex2']):
         if sc:                       # no superclass == not a reconstructed neuron
-            keep[int(body)] = (ty, cl, sc, side)
+            keep[int(body)] = (ty, cl, sc, side, h1, h2)
     return keep, len(ann['bodyId'])
 
 
@@ -164,23 +166,29 @@ def main():
     # channels through, so a channel naming a type that does not exist fails loudly at load.
     types = {}
     classes = {}
+    # THE ARENA'S COORDINATE SYSTEM. MaleCNS assigns every columnar optic-lobe neuron a position in
+    # the ommatidial lattice (hex1 1-36, hex2 1-39, per eye). That lattice is the fly's retinotopy,
+    # and it is what lets a market be placed SOMEWHERE in the visual field rather than injected
+    # straight into a detector. Keyed "<side>:<hex1>:<hex2>" so a column is addressable by eye.
+    columns = {}
     typed = 0
+    hexed = 0
     body_list = bodies.tolist()
-    meta_type = [None] * n
-    meta_side = [None] * n
     for i, body in enumerate(body_list):
         rec = ann_of.get(body)
         if rec is None:
             continue
-        ty, cl, sc, side = rec
-        meta_type[i] = ty
-        meta_side[i] = side
+        ty, cl, sc, side, h1, h2 = rec
         if ty:
             typed += 1
             types.setdefault(ty, []).append(i)
         if sc:
             classes.setdefault(sc, []).append(i)
+        if h1 is not None and h2 is not None and side:
+            hexed += 1
+            columns.setdefault(f'{side}:{int(h1)}:{int(h2)}', []).append(i)
     log(f'{typed:,} neurons carry a cell type, across {len(types):,} distinct types')
+    log(f'{hexed:,} neurons carry a retinotopic position, across {len(columns):,} columns')
 
     log('building CSR')
     order = np.argsort(idx_pre, kind='stable')
@@ -212,6 +220,8 @@ def main():
         json.dump(types, f)
     with open(os.path.join(OUT, 'classes.json'), 'w') as f:
         json.dump(classes, f)
+    with open(os.path.join(OUT, 'columns.json'), 'w') as f:
+        json.dump(columns, f)
 
     manifest = {
         'dataset': 'MaleCNS v1.0',
@@ -227,6 +237,8 @@ def main():
         'synapses': int(wt.sum()),
         'typedNeurons': int(typed),
         'distinctTypes': len(types),
+        'retinotopicNeurons': int(hexed),
+        'columns': len(columns),
         'neurotransmitters': nt_counts,
         'silentPresynaptic': int(unknown),
         'excitatory': int((sign > 0).sum()),

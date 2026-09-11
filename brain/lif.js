@@ -137,7 +137,7 @@ class Brain {
    *
    * Returns { spikes, steps, ms, seed, raster? } where spikes[i] is neuron i's count.
    */
-  run({ stim = [], ms = 1000, seed = 1, raster = null } = {}) {
+  run({ stim = [], ms = 1000, seed = 1, raster = null, chunkMs = 10 } = {}) {
     this._reset();
     const rand = rng(seed);
     const steps = Math.round(ms / P.DT);
@@ -145,16 +145,26 @@ class Brain {
     const wSyn = P.W_SYN, eM = P.E_M, eS = P.E_S, K = P.K, uTh = P.U_THRESH, rfcSteps = P.RFC_STEPS;
     const inject = wSyn * P.F_POI;
 
-    // Poisson channels, flattened once so the hot loop never walks an object graph.
-    const chNeurons = [], chP = [];
-    for (const s of stim) {
-      if (!s || !s.neurons || !s.neurons.length) continue;
-      const p = (s.rateHz || 0) * P.DT / 1000;
-      if (p <= 0) continue;
-      if (p >= 1) throw new Error(`stimulus rate ${s.rateHz}Hz exceeds one spike per ${P.DT}ms step`);
-      chNeurons.push(Int32Array.from(s.neurons));
-      chP.push(p);
-    }
+    // Stimulus may be a fixed list or a FUNCTION of time. The function form is what makes a looming
+    // stimulus possible: looming is not a signal you inject into a looming detector, it is a patch
+    // of the visual field that gets bigger, and the connectome is what turns one into the other.
+    // It also allows closed loop — the arena reacting to what the fly has just done.
+    const chunkSteps = Math.max(1, Math.round(chunkMs / P.DT));
+    const dynamic = typeof stim === 'function';
+    let chNeurons = [], chP = [];
+
+    const bind = (list) => {
+      chNeurons = []; chP = [];
+      for (const s of list || []) {
+        if (!s || !s.neurons || !s.neurons.length) continue;
+        const p = (s.rateHz || 0) * P.DT / 1000;
+        if (p <= 0) continue;
+        if (p >= 1) throw new Error(`stimulus rate ${s.rateHz}Hz exceeds one spike per ${P.DT}ms step`);
+        chNeurons.push(s.neurons instanceof Int32Array ? s.neurons : Int32Array.from(s.neurons));
+        chP.push(p);
+      }
+    };
+    bind(dynamic ? stim({ ms: 0, step: 0, brain: this }) : stim);
 
     const cap = raster ? (raster.capacity || 200000) : 0;
     const rT = cap ? new Int32Array(cap) : null;
@@ -162,6 +172,12 @@ class Brain {
     let rN = 0;
 
     for (let step = 0; step < steps; step++) {
+      // 0. re-read the world. The arena only changes on a chunk boundary, so the hot loop rebinds
+      //    at most once every chunkMs and the cost stays in the edges where it belongs.
+      if (dynamic && step > 0 && step % chunkSteps === 0) {
+        bind(stim({ ms: step * P.DT, step, brain: this, spikes: this.spikes }));
+      }
+
       // 1. deliver what was emitted DELAY_STEPS ago. on_pre is `g += w`, and it applies during
       //    refractory too — Brian2 does not gate synapses on refractoriness, only integration.
       const bucket = this.ring[step % P.DELAY_STEPS];
