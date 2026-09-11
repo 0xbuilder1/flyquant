@@ -2,9 +2,15 @@
 /**
  * Creator fees -> the fly's trading account. The only code in this repo that moves money on chain.
  *
- *   node trader/harvest.js                    DRY: say exactly what it would do
- *   PRIVATE_KEY=0x.. node trader/harvest.js --broadcast --arm-harvest
- *   PRIVATE_KEY=0x.. node trader/harvest.js --broadcast --arm-harvest --arm-fund
+ *   node keeper/harvest.js                    DRY: say exactly what it would do
+ *   PRIVATE_KEY=0x.. node keeper/harvest.js --broadcast --arm-harvest
+ *   PRIVATE_KEY=0x.. node keeper/harvest.js --broadcast --arm-harvest --arm-fund
+ *
+ * IT LIVES IN keeper/ AND NOT IN trader/ FOR A REASON. The core reads the sink directory's source
+ * and refuses a sink that constructs its own chain client -- a client a sink built itself is the one
+ * network path a fake chain cannot intercept, and therefore the one with no test behind it. This is
+ * an operator script that signs, not sink runtime, so it belongs beside the keeper. The guard caught
+ * it in the wrong folder the first time it was run.
  *
  * SAFETY, and every one of these is independent on purpose:
  *   * nothing sends without --broadcast
@@ -98,9 +104,8 @@ const zkLighterAbi = [{
 }];
 
 function loadConfig() {
-  const dir = path.join(__dirname, '..', 'keeper');
-  const live = path.join(dir, 'config.json');
-  return JSON.parse(fs.readFileSync(fs.existsSync(live) ? live : path.join(dir, 'config.example.json'), 'utf8'));
+  const live = path.join(__dirname, 'config.json');
+  return JSON.parse(fs.readFileSync(fs.existsSync(live) ? live : path.join(__dirname, 'config.example.json'), 'utf8'));
 }
 
 const log = (...a) => console.log(...a);

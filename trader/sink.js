@@ -15,7 +15,7 @@
  * points at 0x82de5b1161c93afdfe21ba0d5343f01cd7401d90, whose 23,168 bytes DO contain 0x8a857083.
  * USDG, WETH and the 1bp pool were each read the same way.
  *
- * `trader/harvest.js` owns both legs and each arms independently. `spentRaw()` still returns 0n
+ * `keeper/harvest.js` owns both legs and each arms independently. `spentRaw()` still returns 0n
  * until a harvest actually moves value, and it is a measurement rather than a stub.
  */
 'use strict';
@@ -92,7 +92,7 @@ function preflight(t) {
   const cfg = sinkCfg();
   const acct = Number((cfg.lighter && cfg.lighter.accountIndex) || 0);
   t.add('lighter account', acct > 0 ? String(acct) : 'PLACEHOLDER 0 — set it before the fly can size anything');
-  t.add('leg B  swap ETH->USDG', 'built · trader/harvest.js --arm-fund');
+  t.add('leg B  swap ETH->USDG', 'built · keeper/harvest.js --arm-fund');
   t.add('leg C  deposit to Lighter', depositReady()
     ? 'verified · ' + (sinkCfg().deposit || {}).address
     : 'BLOCKED — ' + DEPOSIT_UNVERIFIED);
