@@ -47,7 +47,7 @@
     "escrow": "0xd3AFEB2a57f70eF218Aa82451c51B2fb0416Ac9e"
   },
   "launch": {
-    "name": "FLYBRAIN",
+    "name": "FLYQUANT",
     "symbol": "FLY",
     "logo": "",
     "description": "A complete fruit fly connectome with a wallet. 166,700 reconstructed neurons in a flight arena with 57 live perp markets; it turns toward one and its motor neurons decide the trade. Creator fees fund the account it trades with. Every position is public and every fill links to its transaction.",
@@ -61,7 +61,8 @@
     "creatorTaxBps": 200,
     "buybackEnabled": false,
     "configId": 0,
-    "saltSeed": "flybrain-mainnet-001"
+    "saltSeed": "flybrain-mainnet-001",
+    "_symbolNote": "name and symbol are IMMUTABLE ONCE LAUNCHED. The project is FLYQUANT; the ticker is still FLY. Change symbol here BEFORE launching if you want $FLYQUANT instead -- it cannot be edited after."
   },
   "token": {
     "token": "0x0000000000000000000000000000000000000000",

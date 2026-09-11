@@ -2,15 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "site",
   "cleanUrls": true,
-  "functions": { "site/api/stats.js": { "memory": 128, "maxDuration": 10 } },
   "headers": [
-    {
-      "source": "/(.*)\.bin",
-      "headers": [{ "key": "cache-control", "value": "public, max-age=31536000, immutable" }]
-    },
-    {
-      "source": "/api/stats",
-      "headers": [{ "key": "cache-control", "value": "no-store" }]
-    }
+    { "source": "/(.*)\.bin", "headers": [{ "key": "cache-control", "value": "public, max-age=31536000, immutable" }] },
+    { "source": "/api/stats", "headers": [{ "key": "cache-control", "value": "no-store" }] },
+    { "source": "/stats.json", "headers": [{ "key": "cache-control", "value": "no-store" }] },
+    { "source": "/activity.bin", "headers": [{ "key": "cache-control", "value": "no-store" }] }
   ]
 }

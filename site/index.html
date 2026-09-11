@@ -7,8 +7,8 @@
 <meta property="og:image" content="/banner.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="/banner.png">
-<title>FLYBRAIN — a whole fly brain, trading</title>
-<meta name="description" content="165,836 neurons of a real fruit fly, in a flight arena with 57 live perp markets. Every dot is a cell body. Every flash is a spike.">
+<title>FLYQUANT — a whole fly brain, trading</title>
+<meta name="description" content="FLYQUANT · 165,836 neurons of a real fruit fly, in a flight arena with 57 live perp markets. Every dot is a cell body. Every flash is a spike.">
 <style>
   :root {
     --bg:#050706; --panel:#080b09; --line:#14261c; --ink:#c8f5d8; --dim:#4e8266; --faint:#2d5442;
@@ -60,6 +60,19 @@
   #cloud{display:block;width:100%;height:56vh;min-height:340px;cursor:crosshair;background:
     radial-gradient(ellipse at 50% 45%, #071310 0%, #050706 70%)}
   #cloud:active{cursor:grabbing}
+  /* the arena, made literal: every market sits at its own seat around the animal and the whole
+     ring turns with the fly's heading, so what the page shows IS what the fly is facing */
+  .orbit{position:absolute;left:0;right:0;top:0;height:56vh;min-height:340px;
+    pointer-events:none;overflow:hidden;z-index:3}
+  .orbit i{position:absolute;font-style:normal;font-size:10px;letter-spacing:.06em;
+    transform:translate(-50%,-50%);white-space:nowrap;color:var(--faint);
+    transition:color .5s ease,opacity .5s ease}
+  .orbit i.on{color:var(--grn);text-shadow:var(--glow)}
+  .orbit i.loom{color:var(--loom);text-shadow:0 0 7px rgba(255,77,77,.5)}
+  .orbit i.pick{color:var(--hot);font-weight:700;font-size:12px;
+    text-shadow:0 0 10px rgba(255,176,0,.65)}
+  .orbit b{position:absolute;left:50%;top:50%;width:1px;height:1px}
+
   .over{position:absolute;pointer-events:none;font-size:11.5px;color:var(--dim);letter-spacing:.04em}
   .over.tl{top:12px;left:16px} .over.bl{bottom:12px;left:16px} .over.br{bottom:12px;right:16px}
   .over b{color:var(--ink);font-weight:500}
@@ -74,7 +87,7 @@
 
   /* a terminal prompt, used wherever the page is speaking */
   .prompt{color:var(--grn);text-shadow:var(--glow)}
-  .prompt::before{content:'flybrain@rh:~$ ';color:var(--faint)}
+  .prompt::before{content:'flyquant@rh:~$ ';color:var(--faint)}
   .cursor{display:inline-block;width:7px;height:13px;background:var(--grn);vertical-align:-2px;
     box-shadow:var(--glow);animation:bl 1.05s steps(2) infinite}
   @keyframes bl{0%,50%{opacity:1}51%,100%{opacity:0}}
@@ -245,7 +258,7 @@
 <div id="boot"></div>
 
 <div class="top">
-  <div class="brand"><i>FLY</i>BRAIN</div>
+  <div class="brand"><i>FLY</i>QUANT</div>
   <div class="tag"><b>one whole fly brain</b>, trading 57 perp markets on Robinhood Chain ·
     it turns toward a market and its motor neurons decide</div>
   <div class="live" id="live"><span class="d"></span><span id="liveText">connecting</span></div>
@@ -254,6 +267,7 @@
 <div class="layout">
   <div class="stage">
     <canvas id="cloud"></canvas>
+    <div class="orbit" id="orbit"></div>
     <div class="over tl" id="ovTL"></div>
     <div class="over bl" id="ovBL"></div>
     <div class="over br">drag to rotate · scroll to zoom</div>
@@ -278,11 +292,6 @@
     <section class="tape-wrap">
       <div class="tape-head">
         <h3 style="margin:0">The tape</h3>
-        <div class="seg" id="tapeMode">
-          <button data-mode="all" class="on">all</button>
-          <button data-mode="live">live</button>
-          <button data-mode="backtest">backtest</button>
-        </div>
         <div class="tape-sum" id="tapeSum"></div>
       </div>
       <div class="tape-scroll"><table class="tp" id="feed"><tbody></tbody></table></div>
@@ -341,6 +350,9 @@
 const $ = (s) => document.querySelector(s);
 const fmt = (n) => n == null ? '—' : Math.round(n).toLocaleString();
 const pct = (x) => (x * 100).toFixed(x >= 0.1 ? 0 : 1) + '%';
+// declared up here with the rest of the state, not beside its functions: the animation loop starts
+// immediately and touches it on the first frame, which is before a `let` further down exists
+let orbit = { labels: [], chosen: null, heading: 0, bands: 72, front: 36 };
 const POPS = { LC4:'#38bdf8', LPLC2:'#ff4d4d', MN9:'#2bff88', MDN:'#ffb000', DNp09:'#4e8266', DNa02:'#c08bff' };
 
 /* ═══ the brain, in three dimensions ═══════════════════════════════════════════════
@@ -449,6 +461,7 @@ function frame() {
     // replay the pass on a loop, with a beat of darkness so each replay reads as a new pass
     view.tBin = (view.tBin + 0.11) % (bins + 9);
     GL.draw(view);
+    placeOrbit();
   }
   requestAnimationFrame(frame);
 }
@@ -533,6 +546,7 @@ function render(s) {
       <div class="hz">${r.hz.toFixed(0)} Hz</div></div>`;
   }).join('');
 
+  buildOrbit(s);
   renderBook(s);
   renderFeed(s);
   renderPnl(s);
@@ -644,64 +658,30 @@ function renderBook(s) {
    this page could do.                                                                   */
 function renderPnl(s) {
   const acct = s.account || {};
-  const liveKnown = !acct.error && Number.isFinite(acct.equity);
-  const useLive = tapeMode === 'live' || (tapeMode === 'all' && liveKnown);
-
-  let pnl, pct, label, sub, curve = null, stats = [];
-
-  // ASKED FOR LIVE AND THERE IS NO LIVE: say so. The first version fell through to the backtest
-  // here, which put a +4.60% backtest figure under a tab labelled "live" — precisely the blend this
-  // function exists to prevent, and it took a toggle test to catch.
-  if (tapeMode === 'live' && !liveKnown) {
+  if (acct.error || !Number.isFinite(acct.equity)) {
     $('#pnlNum').className = 'pnl-num flat';
     $('#pnlNum').textContent = '—';
-    $('#pnlLabel').textContent = 'live · no account';
-    $('#pnlSub').innerHTML = acct.error
-      ? String(acct.error)
-      : 'nothing has traded live yet';
+    $('#pnlLabel').textContent = 'no account';
+    $('#pnlSub').innerHTML = acct.error ? String(acct.error) : 'nothing has traded yet';
     $('#pnlStats').innerHTML = '';
     drawCurve(null);
     return;
   }
-
-  if (useLive && liveKnown) {
-    pnl = Number(acct.unrealized) || 0;
-    pct = acct.equity ? (pnl / acct.equity) * 100 : 0;
-    label = 'live · unrealised';
-    sub = `on <b>${usd(acct.equity)}</b> of equity · ${acct.positions.length} open`;
-    stats = [
-      ['equity', usd(acct.equity)],
-      ['exposure', usd(acct.exposure)],
-      ['positions', String(acct.positions.length)],
-    ];
-  } else if (backtest) {
-    pnl = backtest.pnl;
-    pct = backtest.pnlPct;
-    label = 'backtest · ' + backtest.hours + ' hours';
-    sub = `<b>${usd(backtest.startEquity)}</b> → <b>${usd(backtest.finalEquity)}</b> · not live, not an edge`;
-    curve = backtest.equityCurve;
-    stats = [
-      ['decisions', String(backtest.decisions)],
-      ['fill rate', (backtest.fillRate * 100).toFixed(0) + '%'],
-      ['spread paid', usd(backtest.spreadPaid)],
-      ['execution cost', (backtest.spreadPaid / backtest.startEquity * 100).toFixed(3) + '%'],
-    ];
-  } else {
-    $('#pnlNum').textContent = '—';
-    $('#pnlLabel').textContent = 'no account yet';
-    $('#pnlSub').innerHTML = 'set <b>lighter.accountIndex</b> in keeper/config.json';
-    return;
-  }
-
+  const pnl = Number(acct.unrealized) || 0;
+  const pct = acct.equity ? (pnl / acct.equity) * 100 : 0;
   const dir = pnl > 0 ? 'up' : pnl < 0 ? 'dn' : 'flat';
   $('#pnlNum').className = 'pnl-num ' + dir;
   $('#pnlNum').textContent = (pnl >= 0 ? '+' : '') + usd(pnl);
-  $('#pnlLabel').textContent = label;
-  $('#pnlSub').innerHTML = `<b class="${dir}" style="color:${pnl >= 0 ? 'var(--grn)' : 'var(--short)'}">` +
-    `${pnl >= 0 ? '+' : ''}${pct.toFixed(2)}%</b> &nbsp; ${sub}`;
-
-  $('#pnlStats').innerHTML = stats.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
-  drawCurve(curve);
+  $('#pnlLabel').textContent = 'unrealised';
+  $('#pnlSub').innerHTML = `<b style="color:${pnl >= 0 ? 'var(--grn)' : 'var(--short)'}">` +
+    `${pnl >= 0 ? '+' : ''}${pct.toFixed(2)}%</b> &nbsp; on <b>${usd(acct.equity)}</b> of equity · ` +
+    `${acct.positions.length} open`;
+  $('#pnlStats').innerHTML = [
+    ['equity', usd(acct.equity)],
+    ['exposure', usd(acct.exposure)],
+    ['positions', String(acct.positions.length)],
+  ].map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
+  drawCurve(s.equityCurve || null);
 }
 
 function drawCurve(curve) {
@@ -756,15 +736,12 @@ function drawCurve(curve) {
    Live decisions and backtested ones in one place, each labelled for what it is. Every
    pass writes a line INCLUDING the ones that placed nothing — a feed that shows only the
    orders that went through is a highlight reel.                                          */
-let backtest = null;
-let tapeMode = 'all';
 let activityUrl = 'activity.bin';
 
 function tapeRows(s) {
-  const live = (s.feed || []).map((f) => ({ ...f, kind: 'live' }));
-  const bt = backtest ? backtest.feed.map((f) => ({ ...f, kind: 'backtest' })) : [];
-  let rows = tapeMode === 'live' ? live : tapeMode === 'backtest' ? bt : live.concat(bt);
-  return rows.sort((a, z) => z.at - a.at).slice(0, 120);
+  // LIVE ONLY. A backtest next to real fills in the same table invites reading one as the other,
+  // however it is labelled.
+  return (s.feed || []).slice().sort((a, z) => z.at - a.at).slice(0, 120);
 }
 
 function renderFeed(s) {
@@ -776,9 +753,7 @@ function renderFeed(s) {
   } else {
     tb.innerHTML = rows.map((f) => {
       const d = new Date(f.at);
-      const when = f.kind === 'backtest'
-        ? d.toISOString().slice(5, 16).replace('T', ' ')
-        : d.toTimeString().slice(0, 8);
+      const when = d.toTimeString().slice(0, 8);
       const status = f.status || 'none';
       const exec = f.execution === 'post-only' ? '<span class="tag post">resting</span>'
                  : f.execution === 'market' ? '<span class="tag cross">crossing</span>' : '';
@@ -786,7 +761,7 @@ function renderFeed(s) {
       const pnl = f.realised != null
         ? `<span class="pnl ${f.realised >= 0 ? 'up' : 'dn'}">${f.realised >= 0 ? '+' : ''}${usd(f.realised)}</span>` : '';
       return `<tr>
-        <td class="t">${when}${f.kind === 'backtest' ? ' <span class="tag bt">bt</span>' : ''}</td>
+        <td class="t">${when}</td>
         <td class="${f.side || ''}">${(f.side || f.action || '—').toUpperCase()}</td>
         <td class="sym">${f.symbol || '—'}</td>
         <td class="num">${f.sizeBase != null ? Number(f.sizeBase).toLocaleString(undefined, { maximumFractionDigits: 4 }) : ''}</td>
@@ -801,25 +776,13 @@ function renderFeed(s) {
     }).join('');
   }
 
-  // the summary strip
   const bits = [];
-  if (backtest) {
-    const up = backtest.pnl >= 0;
-    bits.push(`<span>backtest <b>${backtest.hours}h</b></span>`);
-    bits.push(`<span><b class="${up ? 'up' : 'dn'}">${up ? '+' : ''}${backtest.pnlPct.toFixed(2)}%</b> on ${usd(backtest.startEquity)}</span>`);
-    bits.push(`<span>fill rate <b>${(backtest.fillRate * 100).toFixed(0)}%</b></span>`);
-    bits.push(`<span>spread paid <b>${usd(backtest.spreadPaid)}</b></span>`);
-  }
+  if (s.account && !s.account.error) bits.push(`<span>equity <b>${usd(s.account.equity)}</b></span>`);
   if (s.trade) bits.push(`<span>live <b>${s.trade.live ? 'ARMED' : 'disarmed'}</b></span>`);
   $('#tapeSum').innerHTML = bits.join('');
 
-  $('#tapeNote').innerHTML = backtest
-    ? `<b>bt</b> rows are a BACKTEST: the real fly, on ${backtest.source}. Fills are modelled at hourly
-       resolution and ignore queue position, which flatters them — the ${(backtest.fillRate * 100).toFixed(0)}%
-       fill rate would not survive a three-minute live cadence. Under two days of sample.
-       <b>It shows the machine works, not that the strategy does.</b> Live rows link to the transaction
-       that proves them.`
-    : `Every pass writes a line, including the ones that placed nothing.`;
+  $('#tapeNote').innerHTML = 'Every pass writes a line, including the ones that placed nothing. ' +
+    'Each fill links to the transaction that proves it.';
 }
 
 /* ═══ the arena ═══════════════════════════════════════════════════════════════════ */
@@ -902,22 +865,47 @@ function drawRaster(p) {
     `<span>${p.raster.dots.length.toLocaleString()} spikes drawn</span>`;
 }
 
+/* ═══ the ring of markets ═════════════════════════════════════════════════════════
+   57 tickers on an ellipse around the brain, each at the azimuth the fly actually seats
+   it at, the whole ring rotating with the fly's heading. The one it is facing burns amber;
+   anything falling goes red. It is the arena panel and the hero showing the same thing.   */
+function buildOrbit(s) {
+  const host = $('#orbit');
+  if (!host) return;
+  const rows = s.pass.markets || [];
+  host.innerHTML = rows.map((m) => `<i data-seat="${m.seat}">${m.symbol}</i>`).join('');
+  orbit.labels = [...host.querySelectorAll('i')].map((el, k) => ({ el, m: rows[k] }));
+  orbit.bands = s.arena.bands; orbit.front = s.arena.front;
+  orbit.chosen = s.pass.chosen; orbit.heading = s.pass.heading;
+  for (const { el, m } of orbit.labels) {
+    el.className = m.symbol === orbit.chosen ? 'pick' : (m.fall > 0.02 ? 'loom' : (m.bright > 0.55 ? 'on' : ''));
+    el.style.opacity = (0.3 + m.bright * 0.7).toFixed(2);
+  }
+}
+
+function placeOrbit() {
+  const host = $('#orbit');
+  if (!host || !orbit.labels.length) return;
+  const w = host.clientWidth, h = host.clientHeight;
+  if (w < 10) return;
+  const cx = w / 2, cy = h / 2;
+  const rx = Math.min(w * 0.46, 560), ry = Math.min(h * 0.42, 300);
+  for (const { el, m } of orbit.labels) {
+    // its seat, less where the fly has turned, less the extra spin the view is doing
+    const band = m.seat - orbit.heading;
+    const a = ((band - orbit.front) / orbit.bands) * Math.PI * 2 - Math.PI / 2 + view.yaw;
+    const x = cx + Math.cos(a) * rx;
+    const y = cy + Math.sin(a) * ry * 0.72;
+    // fade the ones that have swung round the back, so the ring reads as a ring
+    const depth = (Math.sin(a) + 1) / 2;
+    el.style.left = x.toFixed(1) + 'px';
+    el.style.top = y.toFixed(1) + 'px';
+    el.style.opacity = (0.16 + (0.3 + m.bright * 0.7) * (0.45 + depth * 0.55)).toFixed(2);
+  }
+}
+
 let rt;
 addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (latest) { drawArena(latest); drawRaster(latest.pass); } }, 120); });
-
-fetch('backtest.json').then((r) => (r.ok ? r.json() : null)).then((b) => {
-  backtest = b;
-  if (latest) { renderFeed(latest); renderPnl(latest); }
-}).catch(() => {});
-
-document.querySelectorAll('#tapeMode button').forEach((b) => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('#tapeMode button').forEach((x) => x.classList.remove('on'));
-    b.classList.add('on');
-    tapeMode = b.dataset.mode;
-    if (latest) { renderFeed(latest); renderPnl(latest); }
-  });
-});
 
 /* ═══ boot ════════════════════════════════════════════════════════════════════════
    Every line is a real figure from the graph that is actually loaded. A boot screen that
@@ -928,7 +916,7 @@ document.querySelectorAll('#tapeMode button').forEach((b) => {
   if (!el) return;
   const pad = (a, b) => a + ' ' + '.'.repeat(Math.max(2, 34 - a.length)) + ' ' + b;
   const lines = [
-    'FLYBRAIN  ·  MaleCNS v1.0 connectome runtime',
+    'FLYQUANT  ·  MaleCNS v1.0 connectome runtime',
     'Janelia FlyEM / Cambridge / Google  ·  CC BY 4.0',
     '',
     ['ok', pad('mapping connectome', '165,836 neurons')],

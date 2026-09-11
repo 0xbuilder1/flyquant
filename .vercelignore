@@ -1,0 +1,12 @@
+# Vercel falls back to .gitignore when this file is absent, which would drop site/stats.json and
+# site/activity.bin — the two files the page needs to render anything at all. They are gitignored
+# because they change every pass, NOT because they should be left out of a deploy. So the ignore
+# list is spelled out here instead, and whatever the keeper last wrote gets uploaded with the site.
+node_modules
+.git
+brain/data
+brain/graph
+keeper/state
+keeper/config.json
+.env
+backtest/data

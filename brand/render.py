@@ -152,11 +152,11 @@ def make_banner(xyz, w=1500, h=500):
     big = font(92)
     # MEASURED, not guessed: hardcoding the second word's x put the Y of FLY through the B of BRAIN
     dr.text((64, 150), 'FLY', font=big, fill=(255, 176, 0, 255))
-    dr.text((64 + dr.textlength('FLY', font=big), 150), 'BRAIN', font=big, fill=(43, 255, 136, 255))
+    dr.text((64 + dr.textlength('FLY', font=big), 150), 'QUANT', font=big, fill=(43, 255, 136, 255))
     dr.text((66, 258), 'a whole fruit fly connectome, trading', font=font(27), fill=(200, 245, 216, 235))
     dr.text((66, 296), '165,836 neurons  ·  6,242,118 connections', font=font(22), fill=(78, 130, 102, 255))
     dr.text((66, 330), 'every flash is a real spike', font=font(22), fill=(78, 130, 102, 255))
-    dr.text((66, 392), 'flybrain@rh:~$ ', font=font(21), fill=(45, 84, 66, 255))
+    dr.text((66, 392), 'flyquant@rh:~$ ', font=font(21), fill=(45, 84, 66, 255))
     dr.rectangle([236, 392, 248, 414], fill=(43, 255, 136, 255))
 
     out = scanlines(bg, step=3, dark=0.86)
