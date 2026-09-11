@@ -2,37 +2,42 @@
  * What the fly decided, read off its motor output.
  *
  * MaleCNS types 480 distinct descending neurons — the whole channel from brain to body. This file
- * reads five of them, and every one is a published behaviour rather than a chosen abstraction:
+ * reads five populations, and every one is a published behaviour rather than a chosen abstraction:
  *
- *   DNp01  the giant fiber       escape. One spike and the animal is already leaving.
+ *   LPLC2  looming detector      escape. Expansion-selective, and it drives the giant fiber.
  *   MN9    proboscis extension   feeding. Shiu et al.'s own readout for "this is food".
  *   MDN    the moonwalker        backward walking. Away, deliberately, not in a panic.
  *   DNp09                        stopping. The fly freezes and does nothing.
- *   DNa02  steering              which way. Its left-right imbalance picks the coin.
+ *   DNa02  steering              which way — read in arena.js, because it steers DURING the pass.
  *
- * THE ESCAPE RULE IS ALL-OR-NONE AND THAT IS NOT A SIMPLIFICATION. The giant fiber is the textbook
- * single-spike trigger: it does not vote, it does not scale, and a fly does not partially jump. So
- * a single DNp01 spike sells the whole position, and no other channel can outvote it. If that ever
- * becomes a weighted term because it was selling too often, the honest thing is to say the fly is
- * being overruled — not to quietly make the giant fiber negotiable.
+ * WHY ESCAPE READS LPLC2 AND NOT THE GIANT FIBER. DNp01 is the textbook all-or-none escape trigger
+ * and it was the obvious readout, but on retinotopic input it never leaves noise — 3 to 7 spikes
+ * whether or not anything is looming (brain/probe-arena.js). LPLC2, one synapse upstream and the
+ * published looming-sensitive driver of that same escape, fires 5.7x harder at an expanding patch
+ * than at a BIGGER static one. Reading DNp01 anyway would mean reporting a number that is not a
+ * signal. DNp01 is still reported, so anyone can watch it stay at noise.
  *
- * Everything else is a RATE over the run, never a spike. One spike in a 165,836-neuron network is
+ * THE COST OF THAT MOVE, STATED RATHER THAN BURIED: escape is no longer all-or-none. A population
+ * rate competes with the other channels instead of overriding them. The page must say so.
+ *
+ * Everything here is a RATE over the pass, never a spike. One spike in a 165,836-neuron network is
  * noise; a rate is a decision.
  */
 'use strict';
 
 const P = require('./params.js');
 
-// The most any neuron can fire, set by the refractory period alone: 1000/2.2ms. Sizes are quoted
-// as a fraction of this, so there is no scaling constant anywhere in the file.
+// The most any neuron can fire, set by the refractory period alone: 1000/2.2ms. Every channel is
+// quoted as a fraction of this, so the four compete on one scale and no weighting constant exists.
 const MAX_HZ = 1000 / P.T_RFC;
 
 const READOUT = [
-  { id: 'escape', type: 'DNp01', behaviour: 'escape reflex', means: 'sell the position, all of it' },
-  { id: 'feed', type: 'MN9', behaviour: 'proboscis extension', means: 'buy, sized by rate' },
-  { id: 'retreat', type: 'MDN', behaviour: 'backward walking', means: 'reduce the position' },
+  { id: 'escape', type: 'LPLC2', behaviour: 'looming detection', means: 'close the position' },
+  { id: 'feed', type: 'MN9', behaviour: 'proboscis extension', means: 'go long, sized by rate' },
+  { id: 'retreat', type: 'MDN', behaviour: 'backward walking', means: 'go short, sized by rate' },
   { id: 'freeze', type: 'DNp09', behaviour: 'stopping', means: 'do nothing this pass' },
-  { id: 'steer', type: 'DNa02', behaviour: 'steering', means: 'which coin the pass is about' },
+  { id: 'steer', type: 'DNa02', behaviour: 'steering', means: 'which market (read in the arena)' },
+  { id: 'giantFiber', type: 'DNp01', behaviour: 'escape reflex', means: 'reported, not acted on' },
 ];
 
 function rates(brain, result) {
@@ -42,7 +47,7 @@ function rates(brain, result) {
     out[r.id] = {
       type: r.type,
       neurons: n.length,
-      spikes: n.map((i) => result.spikes[i]),
+      spikes: n.reduce((a, i) => a + result.spikes[i], 0),
       hz: brain.rateOf(n, result.ms),
     };
   }
@@ -52,49 +57,44 @@ function rates(brain, result) {
 /**
  * rates -> an intent the trader can act on, or refuse to.
  *
- * Returns { action, size, why, rates } where action is one of:
- *   'escape'  sell everything held of this coin
- *   'buy'     buy, size = fraction of the book the trader is allowed to commit
- *   'reduce'  sell that fraction of the position
- *   'hold'    nothing
+ * action is one of 'long' | 'short' | 'escape' | 'hold'. Winner-take-all across four channels on
+ * one normalised scale: whichever behaviour the fly is doing hardest is the one that happens.
  *
  * `size` is a FRACTION, never an amount. This file has no idea how much money exists and must not:
- * turning a fraction into wei is the trader's job, under the ceiling, and keeping that boundary is
- * what stops a brain bug from becoming a spend bug.
+ * turning a fraction into a position is the trader's job, under the ceiling, and keeping that
+ * boundary is what stops a brain bug from becoming a spend bug.
  */
 function decide(brain, result) {
   const r = rates(brain, result);
-
-  if (r.escape.spikes.some((s) => s > 0)) {
-    return {
-      action: 'escape', size: 1, rates: r,
-      why: `DNp01 fired (${r.escape.spikes.join('+')} spikes) — the giant fiber is all-or-none`,
-    };
-  }
-
+  const escape = r.escape.hz / MAX_HZ;
   const feed = r.feed.hz / MAX_HZ;
   const retreat = r.retreat.hz / MAX_HZ;
   const freeze = r.freeze.hz / MAX_HZ;
 
-  // Stopping beats moving. A fly that is freezing is not walking somewhere, and the ambiguous case
-  // — everything firing at once — should resolve to doing nothing rather than to doing both.
-  if (freeze >= feed && freeze >= retreat) {
+  const top = Math.max(escape, feed, retreat, freeze);
+  if (top <= 0) return { action: 'hold', size: 0, rates: r, why: 'no descending neuron fired' };
+
+  // Stopping beats moving on a tie. The ambiguous case — everything firing at once — should resolve
+  // to doing nothing rather than to doing both.
+  if (freeze === top) {
     return { action: 'hold', size: 0, rates: r, why: `DNp09 dominant at ${r.freeze.hz.toFixed(1)}Hz` };
   }
-
-  if (feed > retreat) {
+  if (escape === top) {
     return {
-      action: 'buy', size: feed - retreat, rates: r,
+      action: 'escape', size: 1, rates: r,
+      why: `LPLC2 at ${r.escape.hz.toFixed(1)}Hz — something is looming`,
+    };
+  }
+  if (feed === top) {
+    return {
+      action: 'long', size: feed - retreat, rates: r,
       why: `MN9 at ${r.feed.hz.toFixed(1)}Hz against MDN at ${r.retreat.hz.toFixed(1)}Hz`,
     };
   }
-  if (retreat > feed) {
-    return {
-      action: 'reduce', size: retreat - feed, rates: r,
-      why: `MDN at ${r.retreat.hz.toFixed(1)}Hz against MN9 at ${r.feed.hz.toFixed(1)}Hz`,
-    };
-  }
-  return { action: 'hold', size: 0, rates: r, why: 'no descending neuron fired' };
+  return {
+    action: 'short', size: retreat - feed, rates: r,
+    why: `MDN at ${r.retreat.hz.toFixed(1)}Hz against MN9 at ${r.feed.hz.toFixed(1)}Hz`,
+  };
 }
 
 /** the readout table, for the preflight, the site and the honesty guard */

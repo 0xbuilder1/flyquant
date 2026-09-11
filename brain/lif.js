@@ -65,6 +65,7 @@ class Brain {
       targets: view('targets.bin', Int32Array),
       weights: view('weights.bin', Uint16Array),
       sign: new Int8Array(rd('sign.bin').slice().buffer),
+      side: new Int8Array(rd('side.bin').slice().buffer),   // 0 unknown, 1 left, 2 right
       bodies: view('bodies.bin', BigInt64Array),
       types: JSON.parse(fs.readFileSync(path.join(dir, 'types.json'), 'utf8')),
       classes: JSON.parse(fs.readFileSync(path.join(dir, 'classes.json'), 'utf8')),

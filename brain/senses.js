@@ -1,45 +1,36 @@
 /**
- * The market, as smells.
+ * The market the fly is facing, as smell.
  *
- * Four channels. Each one is a named glomerulus or visual projection type whose INNATE valence is
- * published, carrying a market quantity whose sign matches that valence.
+ * THE DIVISION OF LABOUR, AND WHY IT IS NOT ARBITRARY. The arena is vision: it says WHICH market,
+ * and it carries looming, because a collapse is an expanding object. This file is chemical: it says
+ * whether the thing being faced is GOOD OR BAD. A fly orients visually and evaluates chemically,
+ * and the first version of the arena forgot the second half — it drove everything through the optic
+ * lobe and then wondered why MN9, a proboscis motor neuron, never fired. A fly does not extend its
+ * proboscis because it saw something across the room.
  *
- * THE RULE THIS FILE EXISTS TO ENFORCE, and the only one that matters here:
+ * The smell is of WHATEVER IS CURRENTLY IN FRONT. As the fly turns, the smell changes with it. That
+ * is a plume: you smell what you are pointed at, and turning toward it is how a fly finds a plume in
+ * the first place.
+ *
+ * THE RULE THIS FILE EXISTS TO ENFORCE:
  *
  *   A CHANNEL MAY ONLY CARRY A SIGNAL WHOSE PUBLISHED INNATE VALENCE MATCHES ITS SIGN.
  *
- * Geosmin makes a fly that has never smelled it walk away; that is why DA2 can carry a rug signal.
- * Putting the rug signal into the food channel would produce a fly that buys rugs, and it would be
- * OUR fly doing it, not a fly.
+ * Geosmin makes a fly that has never smelled it walk away; that is why DA2 can carry funding. Wiring
+ * funding into the food channel would produce a fly that is attracted to the cost of holding, and it
+ * would be OUR fly doing that, not a fly.
  *
- * THERE IS NOT ONE TUNED CONSTANT IN THIS FILE, ON PURPOSE. Every channel is driven by a quantity
- * that is already a fraction of something the chain reports — a share of flow, a share of swaps, a
- * fraction of liquidity withdrawn, a fraction of price lost. A scaling constant is where a "sensory
- * gain" would quietly become a trading parameter fitted to returns, so there is nowhere to put one.
- * The only free choice is the observation window, which lives in the config and is published.
- *
- * Money arrives here as BigInt raw units and stays integer until the last line of each channel,
- * where it becomes a firing rate. A float may describe a neuron. It may never describe a balance.
+ * THERE IS NOT ONE TUNED CONSTANT IN THIS FILE, ON PURPOSE. Every channel is a fraction of something
+ * the exchange already reports — a share of the day's range, a share of the funding clamp, a share
+ * of the busiest market's trade count. A scaling constant is where a "sensory gain" would quietly
+ * become a trading parameter fitted to returns, so there is nowhere to put one.
  */
 'use strict';
 
 const P = require('./params.js');
 
-/** integer fraction -> [0,1] float, without ever putting money in a double.
-    Numerator and denominator are wei; the ratio is dimensionless and safe. */
-function frac(num, den) {
-  if (den <= 0n) return 0;
-  if (num <= 0n) return 0;
-  if (num >= den) return 1;
-  return Number((num * 1000000n) / den) / 1000000;
-}
+const clamp01 = (x) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);
 
-/**
- * The channels, with what each one is and why it may carry what it carries.
- *
- * `hz` is the Poisson rate injected into every neuron of the listed types, capped at the rate Shiu
- * et al. stimulate with. A channel at 0 Hz is a smell that is not there.
- */
 const CHANNELS = [
   {
     id: 'food',
@@ -47,74 +38,62 @@ const CHANNELS = [
     smell: 'food odour',
     // DM1 and VM2 are the apple-cider-vinegar / attractive food-odour glomeruli: innately
     // appetitive, driving approach in a naive fly.
-    carries: 'buying in the window, against the depth of the pool it arrived in',
-    // CONCENTRATION, NOT RATIO. An ORN's firing rate encodes how much odorant is present, and the
-    // first version of this line used buy/(buy+sell) — which reads 50% on a coin with 0.01 ETH of
-    // volume either way and had the fly buying something nobody was trading. A faint smell is
-    // faint. Scaling against pool depth also makes it self-normalising across coins: the same ether
-    // of buying is a strong smell in a thin pool and a weak one in a deep pool, which is true.
-    signal: (o) => frac(o.buyRaw, o.buyRaw + o.liqNow),
+    carries: "the share of today's range gained since the last pass",
+    // the exact mirror of the arena's `fall`, which is what makes long and short symmetric
+    signal: (m) => clamp01(m.rise),
   },
   {
     id: 'geosmin',
     types: ['ORN_DA2'],
     smell: 'geosmin',
-    // DA2 is the dedicated geosmin channel: a hardwired, labelled line for "toxic microbial
-    // growth" that drives avoidance and overrides attractive odours. The one smell a fly is born
-    // knowing to run from, carrying the one signal a holder is born knowing to run from.
-    carries: 'the fraction of pool liquidity withdrawn in the window',
-    signal: (o) => frac(o.liqPrev > o.liqNow ? o.liqPrev - o.liqNow : 0n, o.liqPrev),
+    // DA2 is the dedicated geosmin channel: a hardwired labelled line for "toxic microbial growth"
+    // that drives avoidance and overrides attractive odours. The one smell a fly is born knowing to
+    // run from, carrying the one number a leveraged holder is born knowing to run from.
+    carries: 'funding, against the exchange\'s own small-clamp',
+    signal: (m) => clamp01(m.fundingLoad),
   },
   {
     id: 'cVA',
     types: ['ORN_DA1'],
     smell: 'cVA pheromone',
-    // DA1 is the pheromone glomerulus: it reports that OTHER FLIES ARE HERE, and it is social
-    // rather than appetitive or aversive. It carries the crowd and nothing about whether the crowd
-    // is right.
-    carries: "this coin's share of swaps across every listed coin",
-    signal: (o) => frac(BigInt(o.swaps), BigInt(o.swapsAll)),
-  },
-  {
-    id: 'looming',
-    types: ['LC4', 'LPLC2'],
-    smell: 'an object expanding on the eye',
-    // LC4 and LPLC2 are looming-sensitive visual projection neurons converging on the giant fiber.
-    // This is the one channel that is not a metaphor: a price collapsing IS an object getting
-    // bigger, fast, and the fraction of the mark lost in the window is its angular expansion.
-    carries: 'the fraction of the mark lost in the window',
-    signal: (o) => frac(o.markPrev > o.markNow ? o.markPrev - o.markNow : 0n, o.markPrev),
+    // DA1 is the pheromone glomerulus: it reports that OTHER FLIES ARE HERE. Social, neither
+    // appetitive nor aversive, and it carries the crowd without any claim the crowd is right.
+    carries: "trade count against the busiest market's",
+    signal: (m) => clamp01(m.crowd),
   },
 ];
 
-/**
- * An observation of one coin, over one window, turned into stimulation.
- *
- * obs = {
- *   buyRaw, sellRaw   wei of quote bought / sold in the window   (BigInt)
- *   liqPrev, liqNow   pool liquidity at each end of the window   (BigInt)
- *   markPrev, markNow the V4 mark at each end of the window      (BigInt, X18)
- *   swaps, swapsAll   swap counts, this coin and every listed coin (Number)
- * }
- *
- * Returns { stim, signals } — stim for Brain.run, signals for the ledger and the site, so that
- * what the fly smelled is recorded next to what the fly did.
- */
-function smell(brain, obs) {
+/** derive the chemical view of one market. Every field lands in [0,1] by construction. */
+function chemistry(m, ctx) {
+  const range = Math.max(m.market.high - m.market.low, 0);
+  const rise = m.moved != null && range > 0 && m.moved > 0
+    ? (m.mark - m.mark / (1 + m.moved)) / range
+    : 0;
+  const clampSmall = ctx.fundingClampSmall || 0.05;
+  return {
+    rise: clamp01(rise),
+    fundingLoad: m.market.funding == null ? 0 : clamp01(Math.abs(m.market.funding) / clampSmall),
+    crowd: ctx.tradesMax > 0 ? clamp01(m.market.trades / ctx.tradesMax) : 0,
+  };
+}
+
+/** the market in front -> stimulation, plus what it smelled of, for the ledger and the site */
+function smell(brain, m, ctx) {
+  const chem = chemistry(m, ctx);
   const stim = [];
   const signals = {};
   for (const ch of CHANNELS) {
-    const x = ch.signal(obs);
+    const x = ch.signal(chem);
     signals[ch.id] = x;
     if (x <= 0) continue;
     const neurons = [];
     for (const t of ch.types) neurons.push(...brain.ofType(t));
     stim.push({ neurons, rateHz: x * P.R_POI, channel: ch.id });
   }
-  return { stim, signals };
+  return { stim, signals, chem };
 }
 
-/** every neuron this product can stimulate, for the preflight and the honesty guard */
+/** every neuron this product can stimulate chemically, for preflight and the honesty guard */
 function channelReport(brain) {
   return CHANNELS.map((ch) => ({
     id: ch.id,
@@ -125,4 +104,4 @@ function channelReport(brain) {
   }));
 }
 
-module.exports = { CHANNELS, smell, channelReport, frac };
+module.exports = { CHANNELS, smell, chemistry, channelReport };

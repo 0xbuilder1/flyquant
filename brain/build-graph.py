@@ -146,6 +146,10 @@ def main():
             nt_of[int(body)] = val.lower()
     del nt
 
+    # Which side of the animal each neuron is on. The steering readout is a LEFT-RIGHT IMBALANCE,
+    # so without this DNa02 is two anonymous neurons and the fly cannot turn. 1 = left, 2 = right.
+    side_of = np.zeros(n, dtype=np.int8)
+
     sign = np.zeros(n, dtype=np.int8)
     nt_counts = {}
     unknown = 0
@@ -179,6 +183,7 @@ def main():
         if rec is None:
             continue
         ty, cl, sc, side, h1, h2 = rec
+        side_of[i] = 1 if side == 'L' else (2 if side == 'R' else 0)
         if ty:
             typed += 1
             types.setdefault(ty, []).append(i)
@@ -214,6 +219,8 @@ def main():
         f.write(w.tobytes())
     with open(os.path.join(OUT, 'sign.bin'), 'wb') as f:
         f.write(sign.tobytes())
+    with open(os.path.join(OUT, 'side.bin'), 'wb') as f:
+        f.write(side_of.tobytes())
     with open(os.path.join(OUT, 'bodies.bin'), 'wb') as f:
         f.write(bodies.astype(np.int64).tobytes())
     with open(os.path.join(OUT, 'types.json'), 'w') as f:
