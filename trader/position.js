@@ -42,7 +42,7 @@ function currentNotional(account, marketId) {
  * fly can never hold more notional than the account is worth — no leverage, whatever the exchange
  * would allow. Raising it is the operator taking leverage on deliberately.
  */
-function plan({ account, market, decision, chosen, exposure = {} }) {
+function plan({ account, market, decision, chosen, exposure = {}, depth = null }) {
   const maxFraction = exposure.maxFraction == null ? 1 : Number(exposure.maxFraction);
   const equity = Number(account.equity) || 0;
   const mark = Number(market.mark) || 0;
@@ -78,12 +78,33 @@ function plan({ account, market, decision, chosen, exposure = {} }) {
   let capped = false;
   if (Math.abs(target) > room) { target = Math.sign(target) * room; capped = true; }
 
+  // ── THE DEPTH CAP ───────────────────────────────────────────────────────────────────────────
+  // The bound that only exists once the account is large. A 25% position on $100,000 is $25,000 —
+  // 4% of BTC's book and 147% of PONS's, which eats the entire visible book. ANSEM is 2,271% and
+  // CASHCAT 5,749%. Equity says nothing about whether a market can absorb the order.
+  //
+  // Capped against the THINNER SIDE, because escape dumps the whole position in one order and a
+  // size you can enter but cannot leave is a trap. Read live in the same pass: a cap from stale
+  // depth bounds nothing, and too large is the direction that stays silent until after the fill.
+  //
+  // AN EXIT IS NEVER CAPPED. If the fly is already too big for the book, refusing to shrink it
+  // because the book is thin would trap it in exactly the position the cap exists to prevent. The
+  // cap bounds what may be OPENED; it never bounds what may be closed.
+  let depthCapped = false;
+  const depthFraction = exposure.depthFraction == null ? 0.25 : Number(exposure.depthFraction);
+  const usable = depth && depth.min > 0 && decision.action !== 'escape' ? depth.min * depthFraction : null;
+  if (usable != null && Math.abs(target) > usable) {
+    target = Math.sign(target) * usable;
+    depthCapped = true;
+  }
+
   const delta = target - held;
   const minQuote = Number(market.minQuote) || 0;
   const minBase = Number(market.minBase) || 0;
   const sizeBase = Math.abs(delta) / mark;
 
-  const out = { ...base, target, delta, sizeBase, capped, room, otherExposure };
+  const out = { ...base, target, delta, sizeBase, capped, depthCapped, room, otherExposure,
+              depth: depth ? { min: depth.min, bid: depth.bid, ask: depth.ask, spreadBps: depth.spreadBps } : null };
 
   if (delta === 0) return { ...out, order: null, reason: 'already at target' };
   if (Math.abs(delta) < minQuote) {

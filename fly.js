@@ -120,12 +120,27 @@ function loadConfig() {
     } catch (e) { console.error('could not record what was faced:', e.message); }
   }
   if (account && pass.chosen) {
+    // Depth for the chosen market, read NOW. One extra request per pass, and the only honest bound
+    // on size once the account is large: a cap from a cached book bounds nothing.
+    let depth = null;
+    try {
+      depth = await lighter.depth(pass.chosen.marketId, (cfg.lighter && cfg.lighter.maxSlippage) || 0.005);
+      if (depth) {
+        console.log(`depth ${pass.chosen.symbol}: $${Math.round(depth.bid).toLocaleString()} bid / ` +
+          `$${Math.round(depth.ask).toLocaleString()} ask within ±${(depth.band * 100).toFixed(1)}%, ` +
+          `spread ${depth.spreadBps.toFixed(1)}bp`);
+      }
+    } catch (e) {
+      console.log(`depth ${pass.chosen.symbol}: unreadable — ${e.message}`);
+    }
+
     plan = position.plan({
       account,
       market: pass.chosen.market ? { ...pass.chosen.market, mark: pass.chosen.mark } : pass.chosen,
       decision: d,
       chosen: pass.chosen,
       exposure: tradeCfg.exposure,
+      depth,
     });
 
     feedEntry = await orders.execute({
@@ -136,7 +151,8 @@ function loadConfig() {
     if (plan.order) {
       console.log(`\nplan: hold $${plan.held.toFixed(2)} → target $${plan.target.toFixed(2)} ` +
         `= ${plan.order.side} ${plan.order.sizeBase} ${plan.symbol} ($${plan.order.notional.toFixed(2)})` +
-        (plan.capped ? `  [capped into $${plan.room.toFixed(2)} of remaining room]` : ''));
+        (plan.capped ? `  [capped into $${plan.room.toFixed(2)} of book room]` : '') +
+        (plan.depthCapped ? `  [CAPPED BY DEPTH: the book only carries $${Math.round(plan.depth.min).toLocaleString()} on its thin side]` : ''));
       console.log(`  ${feedEntry.status.toUpperCase()}${feedEntry.note ? ' — ' + feedEntry.note : ''}` +
         `${feedEntry.txHash ? '\n  ' + feedEntry.verify : ''}`);
     } else {

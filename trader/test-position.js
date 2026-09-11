@@ -171,12 +171,54 @@ ok('the deadband scales with the account rather than being a dollar rule', () =>
   const small = plan({ account: account(1000, [pos(44, 250)]), market: fine,
                        decision: { action: 'long', size: 0.9, why: '' }, exposure: SCALE });
   const big = plan({ account: account(100000, [pos(44, 25000)]), market: fine,
-                     decision: { action: 'long', size: 0.99975, why: '' }, exposure: SCALE });
+                     decision: { action: 'long', size: 0.999, why: '' }, exposure: SCALE });
   assert.strictEqual(Math.round(small.delta), -25);
   assert.ok(small.order, '$25 on a $1,000 account is outside its $20 band');
   assert.strictEqual(Math.round(big.delta), -25);
   assert.strictEqual(big.order, null, 'the same $25 on $100,000 is inside its $2,000 band');
 });
+// depth measured live on 2026-09-11, quote within +/-0.5% of mid
+const DEEP = { min: 570008, bid: 570008, ask: 583515, spreadBps: 1 };   // BTC
+const THIN = { min: 16991, bid: 64960, ask: 16991, spreadBps: 8 };      // PONS
+const DUST = { min: 435, bid: 2881, ask: 435, spreadBps: 40 };          // CASHCAT
+
+ok('a deep book does not bind a $25,000 target', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: DEEP });
+  assert.strictEqual(p.target, 25000);
+  assert.strictEqual(p.depthCapped, false);
+});
+ok('a thin book caps the target to a quarter of its THINNER side', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: THIN });
+  assert.strictEqual(p.depthCapped, true);
+  assert.strictEqual(p.target, 16991 * 0.25);
+  assert.ok(p.target < 25000 * 0.18, 'PONS must take far less than the equity-derived size');
+});
+ok('a market with almost no book gets almost no position', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: DUST });
+  assert.strictEqual(p.target, 435 * 0.25);
+  assert.ok(p.target < 120, `${p.target} is still too large for a $435 book`);
+});
+ok('the cap is the thinner side, not the side being traded', () => {
+  // PONS: $64,960 of bids but only $16,991 of asks. Buying uses the asks; the cap must still be
+  // taken against the min, because the EXIT will need the other side.
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: THIN });
+  assert.strictEqual(p.target, Math.min(THIN.bid, THIN.ask) * 0.25);
+});
+ok('AN ESCAPE IS NEVER DEPTH-CAPPED', () => {
+  // already oversized for the book; refusing to shrink because the book is thin would trap the fly
+  // in exactly the position the cap exists to prevent
+  const p = plan({ account: account(100000, [pos(44, 40000)]), market: MARKET,
+                   decision: ESCAPE, exposure: SCALE, depth: DUST });
+  assert.strictEqual(p.target, 0);
+  assert.strictEqual(p.depthCapped, false);
+  assert.ok(p.order, 'the exit must be placeable');
+});
+ok('no depth reading means no depth cap, and the other caps still apply', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: null });
+  assert.strictEqual(p.depthCapped, false);
+  assert.strictEqual(p.target, 25000);
+});
+
 ok('a position the fly stopped looking at goes stale', () => {
   const now = 1000000000;
   const s = stale({

@@ -106,6 +106,40 @@ function toArena(now, prev) {
   });
 }
 
+/**
+ * How much quote sits within `band` of mid, each side. THE ONLY HONEST BOUND ON SIZE.
+ *
+ * At $5,000 nothing in this product needed to know how deep a market was. At $100,000 it is the
+ * whole game: a 25% position is $25,000, which is 4% of BTC's book and **147% of PONS's** — it eats
+ * the entire visible book and keeps going. ANSEM and CASHCAT are worse by an order of magnitude.
+ *
+ * THE THINNER SIDE IS THE ONE THAT BINDS, and that is the part worth being deliberate about. Getting
+ * IN only needs the ask; getting OUT needs the bid, and the fly's escape is all-or-nothing — it
+ * dumps the whole position in one order. A size you can enter but cannot leave is a trap, so the cap
+ * is taken against `min(bid, ask)`.
+ *
+ * READ IN THE SAME PASS AS THE ORDER, NEVER CACHED. A cap from stale depth bounds nothing, and too
+ * large is the silent direction: it does not show up until after the fill.
+ */
+async function depth(marketId, band = 0.005) {
+  const j = await get(`orderBookOrders?market_id=${marketId}&limit=50`);
+  const bids = j.bids || [], asks = j.asks || [];
+  if (!bids.length || !asks.length) return null;
+  const best = { bid: Number(bids[0].price), ask: Number(asks[0].price) };
+  const mid = (best.bid + best.ask) / 2;
+  const sum = (side, keep) => side.reduce(
+    (s, o) => (keep(Number(o.price)) ? s + Number(o.price) * Number(o.remaining_base_amount) : s), 0);
+  const bidDepth = sum(bids, (p) => p >= mid * (1 - band));
+  const askDepth = sum(asks, (p) => p <= mid * (1 + band));
+  return {
+    mid, band,
+    bid: bidDepth,
+    ask: askDepth,
+    min: Math.min(bidDepth, askDepth),
+    spreadBps: ((best.ask - best.bid) / mid) * 10000,
+  };
+}
+
 function statePath(root) {
   return path.join(root || path.join(__dirname, '..', 'keeper', 'state'), 'lighter-snapshot.json');
 }
@@ -121,4 +155,4 @@ function savePrevious(snap, root) {
   fs.writeFileSync(p, JSON.stringify(snap));
 }
 
-module.exports = { HOST, get, snapshot, toArena, loadPrevious, savePrevious, statePath };
+module.exports = { HOST, get, snapshot, toArena, depth, loadPrevious, savePrevious, statePath };
