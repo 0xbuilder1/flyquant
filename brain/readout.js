@@ -85,14 +85,27 @@ function decide(brain, result) {
       why: `LPLC2 at ${r.escape.hz.toFixed(1)}Hz — something is looming`,
     };
   }
+  // CONVICTION IS THE NORMALISED DIFFERENCE, not the raw gap.
+  //
+  // The first version returned feed-retreat as a fraction of MAX_HZ, the refractory ceiling. No
+  // neuron in this network goes near 454Hz — MN9 runs at 12-20 — so every position came out at 2-5%
+  // of equity and the fly could not have traded a real account if it wanted to. That was an artefact
+  // of the denominator, not a judgement the fly was making.
+  //
+  // (winner - loser) / (winner + loser) spans the full range with no constant: one channel firing
+  // alone is total conviction, two firing equally is none. How much money total conviction is worth
+  // is the OPERATOR's risk budget and lives in config, which is the boundary that matters — a brain
+  // parameter may never be tuned for returns, a position limit is nothing but.
+  const conviction = (a, b) => (a + b > 0 ? (a - b) / (a + b) : 0);
+
   if (feed === top) {
     return {
-      action: 'long', size: feed - retreat, rates: r,
+      action: 'long', size: conviction(feed, retreat), rates: r,
       why: `MN9 at ${r.feed.hz.toFixed(1)}Hz against MDN at ${r.retreat.hz.toFixed(1)}Hz`,
     };
   }
   return {
-    action: 'short', size: retreat - feed, rates: r,
+    action: 'short', size: conviction(retreat, feed), rates: r,
     why: `MDN at ${r.retreat.hz.toFixed(1)}Hz against MN9 at ${r.feed.hz.toFixed(1)}Hz`,
   };
 }

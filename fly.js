@@ -1,75 +1,81 @@
 #!/usr/bin/env node
 /**
- * One pass of the fly, on live Lighter markets. Reads only — nothing here can place an order.
+ * One pass of the fly: look at 57 live markets, decide, reconcile the account to that decision.
  *
- *   node fly.js              take a snapshot, and decide if there is a previous one to compare to
- *   node fly.js --ms 600     longer pass (more fly time, more CPU, same determinism)
- *   node fly.js --seed 7     a different fly; same seed always gives the same spikes
+ *   node fly.js                      dry run — decides and plans, sends nothing
+ *   node fly.js --ms 600 --seed 7    longer pass, a different fly (same seed = same spikes)
+ *   node fly.js --broadcast          send, and ONLY if trade.armed is also true in config
  *
- * The window the fly sees is the gap between this run and the last one, because most of what it
- * looks at has no historical endpoint. Run it twice a minute apart to give it something to see.
+ * The market window the fly sees is the gap since the last pass, because most of what it looks at
+ * has no historical endpoint — the previous snapshot on disk IS the history.
  */
 'use strict';
+
+const fs = require('fs');
+const path = require('path');
 
 const { Brain } = require('./brain/lif.js');
 const A = require('./brain/arena.js');
 const { buildArena, seatMarkets, runPass, N_BANDS } = A;
 const { decide } = require('./brain/readout.js');
 const lighter = require('./trader/lighter.js');
+const accountApi = require('./trader/account.js');
+const position = require('./trader/position.js');
+const orders = require('./trader/order.js');
 const publish = require('./trader/publish.js');
-const path = require('path');
 
-function arg(name, dflt) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
+const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : d; };
+const has = (n) => process.argv.includes(`--${n}`);
+
+function loadConfig() {
+  const live = path.join(__dirname, 'keeper', 'config.json');
+  const example = path.join(__dirname, 'keeper', 'config.example.json');
+  const file = fs.existsSync(live) ? live : example;
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  cfg._file = path.basename(file);
+  return cfg;
 }
 
 (async () => {
-  const ms = Number(arg('ms', 400));
+  const cfg = loadConfig();
+  const ms = Number(arg('ms', (cfg.pass && cfg.pass.ms) || 400));
   const seed = Number(arg('seed', 1));
+  const broadcast = has('broadcast');
 
   const t0 = Date.now();
   const brain = Brain.load();
   const arena = buildArena(brain);
-  console.log(`fly: ${brain.n.toLocaleString()} neurons, ${brain.targets.length.toLocaleString()} edges`);
-  console.log(`arena: ${N_BANDS} azimuth bands, ${arena.neurons.toLocaleString()} medulla input neurons ` +
-              `(${arena.inputTypes.join(' ')}), ${arena.emptyBands} empty`);
+  console.log(`fly: ${brain.n.toLocaleString()} neurons, ${brain.targets.length.toLocaleString()} edges · config ${cfg._file}`);
+  console.log(`arena: ${N_BANDS} bands, ${arena.neurons.toLocaleString()} medulla inputs (${arena.inputTypes.join(' ')})`);
 
+  // ── what the market looks like ──────────────────────────────────────────────────────────────
   const prev = lighter.loadPrevious();
   const snap = await lighter.snapshot();
   const markets = lighter.toArena(snap, prev);
   const seats = seatMarkets(markets);
   lighter.savePrevious(snap);
+  console.log(`lighter: ${markets.length} markets, window ${prev ? Math.round((snap.at - prev.at) / 1000) + 's' : 'none'}`);
 
-  const gap = prev ? ((snap.at - prev.at) / 1000).toFixed(0) + 's' : 'none';
-  console.log(`lighter: ${markets.length} active markets, window ${gap}\n`);
-
-  if (!prev) {
-    console.log('No previous snapshot, so nothing is falling and the panorama is still.');
-    console.log('Snapshot saved. Run again in a minute and the fly will have a window to see.\n');
+  // ── what the account looks like ─────────────────────────────────────────────────────────────
+  const accountIndex = Number((cfg.lighter && cfg.lighter.accountIndex) || 0);
+  let account = null, accountError = null;
+  if (accountIndex > 0) {
+    try {
+      account = await accountApi.read(accountIndex);
+      console.log(`account ${account.index}: equity $${account.equity.toFixed(2)}, ` +
+        `${account.positions.length} position${account.positions.length === 1 ? '' : 's'}, ` +
+        `exposure $${account.exposure.toFixed(2)}, uPnL $${account.unrealized.toFixed(2)}`);
+    } catch (e) {
+      accountError = e.message;
+      console.log(`account ${accountIndex}: UNREADABLE — ${e.message}`);
+    }
+  } else {
+    accountError = 'lighter.accountIndex is still the placeholder 0 — set it in keeper/config.json';
+    console.log(`account: ${accountError}`);
   }
 
-  const moved = markets.filter((m) => m.moved != null).sort((a, z) => a.moved - z.moved);
-  if (moved.length) {
-    const fmt = (m) => `${m.symbol} ${(m.moved * 100 >= 0 ? '+' : '')}${(m.moved * 100).toFixed(2)}%`;
-    console.log('biggest movers over the window:');
-    console.log('  down  ' + moved.slice(0, 4).map(fmt).join('   '));
-    console.log('  up    ' + moved.slice(-4).reverse().map(fmt).join('   '));
-    const looming = markets.filter((m) => m.fall > 0).sort((a, z) => z.fall - a.fall).slice(0, 4);
-    console.log('  looming (share of today\'s range given up): ' +
-      (looming.length ? looming.map((m) => `${m.symbol} ${(m.fall * 100).toFixed(0)}%`).join('  ') : 'nothing'));
-    console.log();
-  }
-
-  const bright = [...markets].sort((a, z) => z.bright - a.bright).slice(0, 5);
-  console.log('brightest seats: ' + bright.map((m) => `${m.symbol} ${(m.bright * 100).toFixed(0)}%@${seats.get(m.symbol)}`).join('  '));
-
-  const ctx = {
-    // the exchange's own small-funding clamp, which is what makes "how much funding" a fraction
-    fundingClampSmall: 0.05,
-    tradesMax: Math.max(...markets.map((m) => m.market.trades), 1),
-  };
-
+  // ── the fly ─────────────────────────────────────────────────────────────────────────────────
+  const ctx = { fundingClampSmall: 0.05, tradesMax: Math.max(...markets.map((m) => m.market.trades), 1) };
   const tRun = Date.now();
   const pass = runPass(brain, arena, seats, markets, { ms, seed, ctx, raster: { capacity: 400000 } });
   const d = decide(brain, pass.result);
@@ -77,27 +83,55 @@ function arg(name, dflt) {
   let fired = 0;
   for (let i = 0; i < brain.n; i++) if (pass.result.spikes[i] > 0) fired++;
 
-  console.log(`\nran ${ms}ms of fly time in ${((Date.now() - tRun) / 1000).toFixed(1)}s — ` +
-              `${fired.toLocaleString()} neurons fired`);
-  console.log(`turned ${pass.heading >= 0 ? 'right' : 'left'} ${Math.abs(pass.heading).toFixed(1)} bands ` +
-              `of ${N_BANDS}, and ended up facing ${pass.chosen ? pass.chosen.symbol : '(nothing)'} ` +
-              `(${pass.distance} bands off centre)`);
-
-  if (pass.smelled) {
-    console.log('smelled ' + pass.smelledOf + ': ' +
-      Object.entries(pass.smelled).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join('  '));
-  }
-  const lc = (t) => brain.ofType(t).reduce((a, i) => a + pass.result.spikes[i], 0);
-  console.log(`optic lobe: Tm2 ${lc('Tm2')}  LC4 ${lc('LC4')}  LPLC2 ${lc('LPLC2')}`);
-
+  console.log(`\nran ${ms}ms of fly time in ${((Date.now() - tRun) / 1000).toFixed(1)}s — ${fired.toLocaleString()} neurons fired`);
+  console.log(`turned ${pass.heading >= 0 ? 'right' : 'left'} ${Math.abs(pass.heading).toFixed(1)} bands, facing ` +
+    `${pass.chosen ? pass.chosen.symbol : '(nothing)'}`);
   const r = d.rates;
-  console.log(`\nLPLC2 ${r.escape.hz.toFixed(1)}Hz   MN9 ${r.feed.hz.toFixed(1)}Hz   ` +
-              `MDN ${r.retreat.hz.toFixed(1)}Hz   DNp09 ${r.freeze.hz.toFixed(1)}Hz   ` +
-              `DNa02 ${r.steer.hz.toFixed(1)}Hz   [DNp01 ${r.giantFiber.spikes} spikes, reported only]`);
+  console.log(`LPLC2 ${r.escape.hz.toFixed(1)}  MN9 ${r.feed.hz.toFixed(1)}  MDN ${r.retreat.hz.toFixed(1)}  ` +
+    `DNp09 ${r.freeze.hz.toFixed(1)}  DNa02 ${r.steer.hz.toFixed(1)}   [DNp01 ${r.giantFiber.spikes}]`);
+  console.log(`\n  ${d.action.toUpperCase()} ${d.action === 'hold' ? '' : (d.size * 100).toFixed(1) + '% '}` +
+    `${pass.chosen ? pass.chosen.symbol : ''}\n  ${d.why}`);
 
-  const size = d.action === 'hold' ? '' : `${(d.size * 100).toFixed(1)}% `;
-  console.log(`\n  ${d.action.toUpperCase()} ${size}${pass.chosen ? pass.chosen.symbol : ''}`);
-  console.log(`  ${d.why}`);
+  // ── reconcile the account to what the fly decided ───────────────────────────────────────────
+  let plan = null, feedEntry = null;
+  const tradeCfg = cfg.trade || {};
+  if (account && pass.chosen) {
+    plan = position.plan({
+      account,
+      market: pass.chosen.market ? { ...pass.chosen.market, mark: pass.chosen.mark } : pass.chosen,
+      decision: d,
+      chosen: pass.chosen,
+      exposure: tradeCfg.exposure,
+    });
+
+    feedEntry = await orders.execute({
+      plan,
+      cfg: {
+        accountIndex,
+        apiKeyIndex: (cfg.lighter && cfg.lighter.apiKeyIndex) || 4,
+        maxNotionalUsd: tradeCfg.maxNotionalUsd || 0,
+        maxSlippage: (cfg.lighter && cfg.lighter.maxSlippage),
+        sizeDecimals: pass.chosen.market ? pass.chosen.market.sizeDecimals : 0,
+        armed: !!tradeCfg.armed,
+        stateRoot: path.join(__dirname, 'keeper', 'state'),
+      },
+      broadcast,
+      context: { seed, heading: pass.heading },
+    });
+
+    if (plan.order) {
+      console.log(`\nplan: hold $${plan.held.toFixed(2)} → target $${plan.target.toFixed(2)} ` +
+        `= ${plan.order.side} ${plan.order.sizeBase} ${plan.symbol} ($${plan.order.notional.toFixed(2)})`);
+      console.log(`  ${feedEntry.status.toUpperCase()}${feedEntry.note ? ' — ' + feedEntry.note : ''}` +
+        `${feedEntry.txHash ? '\n  ' + feedEntry.verify : ''}`);
+    } else {
+      console.log(`\nplan: no order — ${plan.reason}`);
+    }
+  } else {
+    console.log(`\nplan: skipped — ${accountError || 'the fly faced nothing'}`);
+  }
+
+  // ── publish ─────────────────────────────────────────────────────────────────────────────────
   const stats = publish.build({
     brain, arena, seats, markets, pass, decision: d,
     meta: {
@@ -106,16 +140,33 @@ function arg(name, dflt) {
       nBands: N_BANDS, front: A.FRONT, baseRadius: A.BASE_RADIUS, maxExpansion: A.MAX_EXPANSION,
     },
   });
+
+  stats.account = account ? {
+    ...position.book(account),
+    index: account.index,
+    verify: account.verify,
+    error: null,
+  } : { error: accountError, index: accountIndex || null, positions: [], verify: accountIndex ? accountApi.verifyAccount(accountIndex) : null };
+
+  stats.trade = {
+    armed: !!tradeCfg.armed,
+    broadcast,
+    live: broadcast && !!tradeCfg.armed,
+    maxNotionalUsd: tradeCfg.maxNotionalUsd || 0,
+    maxFraction: (tradeCfg.exposure && tradeCfg.exposure.maxFraction) != null ? tradeCfg.exposure.maxFraction : 1,
+    plan: plan ? { target: plan.target, held: plan.held, delta: plan.delta, reason: plan.reason } : null,
+  };
+  stats.feed = orders.recent(path.join(__dirname, 'keeper', 'state'), 30);
+
   const siteDir = path.join(__dirname, 'site');
   const graphDir = path.join(__dirname, 'brain', 'graph');
   publish.ensureCloud(graphDir, siteDir);
   const act = publish.activityOf(brain, pass.result, graphDir);
-  require('fs').writeFileSync(path.join(siteDir, 'activity.bin'), act.buf);
+  fs.writeFileSync(path.join(siteDir, 'activity.bin'), act.buf);
   stats.pass.placed = act.placed;
   stats.pass.bins = publish.RASTER_BINS;
 
-  const out = arg('out', path.join(siteDir, 'stats.json'));
-  publish.write(stats, out);
-  console.log(`\npublished ${out}`);
-  console.log(`(dry run — nothing can trade yet. total ${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+  publish.write(stats, arg('out', path.join(siteDir, 'stats.json')));
+  console.log(`\npublished · total ${((Date.now() - t0) / 1000).toFixed(1)}s` +
+    (stats.trade.live ? '' : '  (nothing was sent)'));
 })().catch((e) => { console.error('failed:', e.message); process.exitCode = 1; });

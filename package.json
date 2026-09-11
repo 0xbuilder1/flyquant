@@ -2,10 +2,18 @@
   "name": "flybrain",
   "private": true,
   "description": "a fruit fly's connectome, with a wallet on Robinhood Chain",
-  "workspaces": ["core", "trader", "keeper"],
   "scripts": {
     "brain": "node brain/test-brain.js",
     "decide": "node brain/test-decide.js",
-    "graph": "python brain/build-graph.py"
+    "graph": "python brain/build-graph.py",
+    "position": "node trader/test-position.js",
+    "test": "node brain/test-brain.js && node trader/test-position.js",
+    "pass": "node fly.js",
+    "loop": "node loop.js",
+    "site": "node site/serve.js",
+    "preflight": "node keeper/keeper.js --preflight"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
   }
 }

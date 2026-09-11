@@ -69,6 +69,38 @@
   .tape .long{color:var(--long)} .tape .short,.tape .escape{color:var(--short)} .tape .hold{color:var(--faint)}
   .tape .sym{color:var(--ink)}
 
+  /* the book */
+  .eq{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;margin-bottom:10px}
+  .eq b{display:block;font-size:16px;font-weight:600}
+  .eq span{font-size:10.5px;color:var(--dim)}
+  .eq .up{color:var(--long)} .eq .dn{color:var(--short)}
+  .pos{border-top:1px solid var(--line);padding:6px 0;font-size:11.5px}
+  .pos .hdr{display:flex;justify-content:space-between;align-items:baseline}
+  .pos .sym{font-weight:600;color:var(--ink)}
+  .pos .side{font-size:10px;letter-spacing:.08em;padding:1px 5px;border-radius:3px;margin-left:6px}
+  .pos .side.long{background:rgba(34,197,94,.13);color:var(--long)}
+  .pos .side.short{background:rgba(239,68,68,.13);color:var(--short)}
+  .pos .meta{color:var(--dim);display:flex;gap:12px;flex-wrap:wrap;margin-top:2px;font-size:10.5px}
+  .empty{color:var(--faint);font-size:11.5px;padding:6px 0}
+  .empty a{border-bottom:1px dotted var(--hot)}
+
+  /* the trade feed */
+  .feed{font-size:11.5px}
+  .fe{border-top:1px solid var(--line);padding:6px 0;display:grid;gap:2px}
+  .fe:first-child{border-top:0}
+  .fe .l1{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+  .fe .t{color:var(--faint);font-size:10.5px}
+  .fe .sym{color:var(--ink);font-weight:600}
+  .fe .buy{color:var(--long)} .fe .sell{color:var(--short)}
+  .fe .amt{color:var(--dim)}
+  .fe .st{font-size:9.5px;letter-spacing:.09em;padding:1px 5px;border-radius:3px;text-transform:uppercase}
+  .fe .st.sent{background:rgba(34,197,94,.15);color:var(--long)}
+  .fe .st.dry{background:rgba(106,113,128,.16);color:var(--dim)}
+  .fe .st.refused{background:rgba(239,68,68,.15);color:var(--short)}
+  .fe .st.none{background:transparent;color:var(--faint);border:1px solid var(--line)}
+  .fe .note{color:var(--faint);font-size:10.5px}
+  .fe a{font-size:10.5px;border-bottom:1px dotted var(--hot)}
+
   details{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
   summary{cursor:pointer;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
   details p{font-size:11.5px;color:var(--dim);margin:10px 0}
@@ -125,6 +157,12 @@
 
     <h3>What it wants to do</h3>
     <div id="bars"></div>
+
+    <h3>The book <span id="bookVerify"></span></h3>
+    <div id="book"></div>
+
+    <h3>Trades it placed</h3>
+    <div class="feed" id="feed"></div>
 
     <h3>Now</h3>
     <div class="num" id="now"></div>
@@ -328,6 +366,9 @@ function render(s) {
       <div class="hz">${r.hz.toFixed(0)} Hz</div></div>`;
   }).join('');
 
+  renderBook(s);
+  renderFeed(s);
+
   $('#now').innerHTML = [
     [fmt(p.fired), 'neurons fired'],
     [p.ms + ' ms', 'fly time lived'],
@@ -367,6 +408,70 @@ function render(s) {
   $('#foot').textContent = b.attribution + ' · dynamics after Shiu et al. (2024)';
 
   drawArena(s); drawRaster(p);
+}
+
+/* ═══ the book ════════════════════════════════════════════════════════════════════
+   Read from Lighter's public account endpoint, which is also what the verify link points
+   at — the page is not asking to be believed about its own positions.                    */
+const usd = (x) => (x < 0 ? '-' : '') + '$' + Math.abs(Number(x) || 0).toFixed(2);
+
+function renderBook(s) {
+  const a = s.account || {};
+  $('#bookVerify').innerHTML = a.verify
+    ? ` <a href="${a.verify}" target="_blank" rel="noopener" style="text-transform:none;letter-spacing:0">verify ↗</a>` : '';
+
+  if (a.error) {
+    $('#book').innerHTML = `<div class="empty">${a.error}</div>`;
+    return;
+  }
+  const pnl = Number(a.unrealized) || 0;
+  $('#book').innerHTML =
+    `<div class="eq">
+      <div><b>${usd(a.equity)}</b><span>equity</span></div>
+      <div><b class="${pnl >= 0 ? 'up' : 'dn'}">${usd(pnl)}</b><span>unrealised</span></div>
+      <div><b>${usd(a.exposure)}</b><span>exposure</span></div>
+      <div><b>${((Number(a.utilisation) || 0) * 100).toFixed(0)}%</b><span>of equity at work</span></div>
+    </div>` +
+    (!a.positions || !a.positions.length
+      ? `<div class="empty">no open positions</div>`
+      : a.positions.map((p) => `
+        <div class="pos">
+          <div class="hdr">
+            <span><span class="sym">${p.symbol}</span><span class="side ${p.side}">${p.side}</span></span>
+            <span class="${p.unrealized >= 0 ? 'up' : 'dn'}" style="color:${p.unrealized >= 0 ? 'var(--long)' : 'var(--short)'}">${usd(p.unrealized)}</span>
+          </div>
+          <div class="meta">
+            <span>${p.size} @ ${p.entry}</span><span>${usd(Math.abs(p.notional))}</span>
+            ${p.liquidation ? `<span>liq ${Number(p.liquidation).toPrecision(5)}</span>` : ''}
+          </div>
+        </div>`).join(''));
+}
+
+/* ═══ the trade feed ══════════════════════════════════════════════════════════════
+   Every pass writes a line, INCLUDING the passes that placed nothing. A feed that only
+   shows the orders that went through is a highlight reel.                               */
+function renderFeed(s) {
+  const feed = s.feed || [];
+  const armed = s.trade && s.trade.live;
+  if (!feed.length) {
+    $('#feed').innerHTML = `<div class="empty">nothing yet — the fly writes a line here every pass</div>`;
+    return;
+  }
+  $('#feed').innerHTML = feed.slice(0, 12).map((f) => {
+    const d = new Date(f.at);
+    const hh = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') +
+               ':' + String(d.getSeconds()).padStart(2, '0');
+    const line = f.side
+      ? `<span class="${f.side}">${f.side}</span> <span class="amt">${f.sizeBase} ${f.symbol} · ${usd(f.notional)}</span>`
+      : `<span class="amt">${f.action || '—'} ${f.symbol || ''}</span>`;
+    return `<div class="fe">
+      <div class="l1"><span class="t">${hh}</span>${line}<span class="st ${f.status}">${f.status}</span></div>
+      ${f.note ? `<div class="note">${f.note}</div>` : ''}
+      ${f.verify ? `<a href="${f.verify}" target="_blank" rel="noopener">${f.txHash ? 'verify this fill on Lighter ↗' : 'verify the account on Lighter ↗'}</a>` : ''}
+    </div>`;
+  }).join('') +
+  (armed ? '' : `<div class="empty" style="margin-top:8px">Live trading is disarmed: the fly is planning
+     real orders against a real account and sending none of them.</div>`);
 }
 
 /* ═══ the arena ═══════════════════════════════════════════════════════════════════ */

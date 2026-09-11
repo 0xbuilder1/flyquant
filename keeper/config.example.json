@@ -1,0 +1,94 @@
+{
+  "_readme": "Copy to config.json before running. config.json is gitignored because it carries a live account index; this file is committed and must never have one written into it. NO KEY GOES IN EITHER FILE -- the signer reads LIGHTER_API_KEY from the environment and nothing else does.",
+  "_lighterNote": "accountIndex is a PLACEHOLDER until the operator sets it. It is a public number: anyone can read the account at api.rh.lighter.xyz/api/v1/account?by=index&value=<index>, which is exactly what the site links to so a viewer can check the fly's positions without trusting the page. apiKeyIndex 0-3 are reserved by Lighter for its own desktop and mobile interfaces, so a bot uses 4 or above. The api key is a LIGHTER-NATIVE key, not an EVM key, and is registered once against the account.",
+  "lighter": {
+    "host": "https://api.rh.lighter.xyz",
+    "chainId": 4663,
+    "accountIndex": 0,
+    "apiKeyIndex": 4,
+    "maxSlippage": 0.005
+  },
+  "_tradeNote": "armed is the config seatbelt and --broadcast is the command-line one, and BOTH are required before anything is sent. maxNotionalUsd is a third, enforced inside the signing process itself, so a bug in the sizing cannot spend more than the operator armed whatever the keeper believes. Leave armed false until a full dry cycle has produced orders you agree with.",
+  "trade": {
+    "armed": false,
+    "maxNotionalUsd": 25,
+    "exposure": {
+      "_maxFractionNote": "THE OPERATOR'S RISK BUDGET, and the only number in the whole product that is a policy choice rather than a measurement. The fly returns conviction in [0,1]; this is what total conviction is worth as a fraction of equity. At 0.25 a fully convinced fly holds a quarter of the account in one market and there is no leverage at any setting below 1.0. Raising it above 1.0 is taking leverage on deliberately -- PONS caps near 3x with a 20% maintenance fraction, and a leveraged fly dies to noise. NOTE that trade frequency is bound by capital: Lighter's minimum order is about $10, so at 0.25 an account needs roughly $40 to open at all and a few hundred before incremental adds clear the minimum regularly.",
+      "maxFraction": 0.25
+    }
+  },
+  "_passNote": "ms is fly time per pass and costs roughly 25x that in CPU. everySeconds is the gap between passes, which is also the market window the fly sees, because most of what it looks at has no historical endpoint.",
+  "pass": {
+    "ms": 350,
+    "everySeconds": 45
+  },
+  "_ponsNote": "The token that funds the fly. Fees harvested from the PONS escrow become the collateral it trades. IMMUTABLE ONCE LAUNCHED -- see keeper/README.md. factory and escrow are the PONS V2 constants on Robinhood Chain 4663.",
+  "chain": {
+    "id": 4663,
+    "name": "Robinhood Chain",
+    "rpc": "https://rpc.mainnet.chain.robinhood.com",
+    "explorer": "https://robinhoodchain.blockscout.com"
+  },
+  "pons": {
+    "factory": "0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e",
+    "escrow": "0xd3AFEB2a57f70eF218Aa82451c51B2fb0416Ac9e"
+  },
+  "launch": {
+    "name": "FLYBRAIN",
+    "symbol": "FLY",
+    "logo": "",
+    "description": "A complete fruit fly connectome with a wallet. 166,700 reconstructed neurons in a flight arena with 57 live perp markets; it turns toward one and its motor neurons decide the trade. Creator fees fund the account it trades with. Every position is public and every fill links to its transaction.",
+    "socials": {
+      "twitter": "",
+      "telegram": "",
+      "discord": "",
+      "website": "",
+      "farcaster": ""
+    },
+    "creatorTaxBps": 200,
+    "buybackEnabled": false,
+    "configId": 0,
+    "saltSeed": "flybrain-mainnet-001"
+  },
+  "token": {
+    "token": "0x0000000000000000000000000000000000000000",
+    "curve": "0x0000000000000000000000000000000000000000",
+    "symbol": "FLY",
+    "decimals": 18
+  },
+  "feeWallet": {
+    "_note": "The keeper IS the token's creatorFeeRecipient. escrow.claim() pays this address. A FRESH wallet, never one reused from another project, key via PRIVATE_KEY in the environment only.",
+    "address": "0x0000000000000000000000000000000000000000"
+  },
+  "quote": {
+    "asset": "native",
+    "symbol": "ETH",
+    "decimals": 18
+  },
+  "_distributeNote": "verified gates the UNATTENDED loop and only that. gasReserveEth is the operator's own float floor, which is not fee revenue and may never leave as one.",
+  "distribute": {
+    "verified": false,
+    "gasReserveEth": 0.02,
+    "launchBlock": 0
+  },
+  "loop": {
+    "intervalMs": 45000
+  },
+  "output": {
+    "stats": "site/stats.json"
+  },
+  "watch": {
+    "enabled": true
+  },
+  "fly": {
+    "_note": "The sink's own namespace. The core hands this back untouched and never interprets it.",
+    "lighter": {
+      "accountIndex": 0
+    },
+    "deposit": {
+      "_note": "LEG C. Both fields must be set before anything can be armed. A wrong deposit contract is a total loss, not a retry, so the address must be read from an official Lighter source and verifiedBy must say how.",
+      "address": "",
+      "verifiedBy": ""
+    }
+  }
+}
