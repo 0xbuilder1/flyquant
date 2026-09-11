@@ -158,6 +158,28 @@
   .ticker span{font-size:10px;color:var(--dim);letter-spacing:.09em;text-transform:uppercase}
   .ticker .hot{color:var(--hot)}
 
+  /* ── P&L, the number everybody actually looks for ──────────────────────────────── */
+  .pnl-wrap{border-top:1px solid var(--line);padding:16px;
+    background:linear-gradient(180deg,rgba(43,255,136,.03),transparent)}
+  .pnl-grid{display:grid;grid-template-columns:minmax(220px,auto) minmax(0,1fr) minmax(150px,auto);
+    gap:20px;align-items:center}
+  @media(max-width:900px){.pnl-grid{grid-template-columns:1fr;gap:12px}}
+  .pnl-label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--faint)}
+  .pnl-num{font-size:52px;line-height:1.05;font-weight:700;letter-spacing:-.02em;
+    font-variant-numeric:tabular-nums;margin:2px 0}
+  .pnl-num.up{color:var(--grn);text-shadow:0 0 14px rgba(43,255,136,.4)}
+  .pnl-num.dn{color:var(--short);text-shadow:0 0 14px rgba(255,77,77,.35)}
+  .pnl-num.flat{color:var(--dim)}
+  .pnl-sub{font-size:11.5px;color:var(--dim)}
+  .pnl-sub b{color:var(--ink);font-weight:500}
+  .pnl-chart{position:relative}
+  #curve{display:block;width:100%;height:92px}
+  .pnl-axis{display:flex;justify-content:space-between;font-size:10px;color:var(--faint);margin-top:2px}
+  .pnl-stats{display:grid;gap:5px;font-size:11.5px}
+  .pnl-stats div{display:flex;justify-content:space-between;gap:14px}
+  .pnl-stats span{color:var(--dim)} .pnl-stats b{font-weight:500}
+  .pnl-stats .up{color:var(--grn)} .pnl-stats .dn{color:var(--short)}
+
   /* the tape — the thing people come to watch */
   .tape-wrap{border-top:1px solid var(--line);padding:14px 16px 16px}
   .tape-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px}
@@ -233,6 +255,21 @@
     <div class="over br">drag to rotate · scroll to zoom</div>
 
     <div class="ticker" id="ticker"></div>
+
+    <section class="pnl-wrap">
+      <div class="pnl-grid">
+        <div class="pnl-big">
+          <div class="pnl-label" id="pnlLabel">profit and loss</div>
+          <div class="pnl-num" id="pnlNum">—</div>
+          <div class="pnl-sub" id="pnlSub"></div>
+        </div>
+        <div class="pnl-chart">
+          <canvas id="curve"></canvas>
+          <div class="pnl-axis"><span id="curveFrom"></span><span id="curveTo"></span></div>
+        </div>
+        <div class="pnl-stats" id="pnlStats"></div>
+      </div>
+    </section>
 
     <section class="tape-wrap">
       <div class="tape-head">
@@ -488,6 +525,7 @@ function render(s) {
 
   renderBook(s);
   renderFeed(s);
+  renderPnl(s);
   renderTicker(s);
 
   $('#now').innerHTML = [
@@ -586,6 +624,122 @@ function renderBook(s) {
             ${p.liquidation ? `<span>liq ${Number(p.liquidation).toPrecision(5)}</span>` : ''}
           </div>
         </div>`).join(''));
+}
+
+/* ═══ P&L ═════════════════════════════════════════════════════════════════════════
+   The big number is whatever the tape is showing. On `live` it is the real account's
+   unrealised P&L, read from Lighter's public endpoint; on `backtest` it is the run's
+   result. It is NEVER a blend of the two, and the label always says which — a headline
+   that quietly mixes a backtest into a live figure is the single most dishonest thing
+   this page could do.                                                                   */
+function renderPnl(s) {
+  const acct = s.account || {};
+  const liveKnown = !acct.error && Number.isFinite(acct.equity);
+  const useLive = tapeMode === 'live' || (tapeMode === 'all' && liveKnown);
+
+  let pnl, pct, label, sub, curve = null, stats = [];
+
+  // ASKED FOR LIVE AND THERE IS NO LIVE: say so. The first version fell through to the backtest
+  // here, which put a +4.60% backtest figure under a tab labelled "live" — precisely the blend this
+  // function exists to prevent, and it took a toggle test to catch.
+  if (tapeMode === 'live' && !liveKnown) {
+    $('#pnlNum').className = 'pnl-num flat';
+    $('#pnlNum').textContent = '—';
+    $('#pnlLabel').textContent = 'live · no account';
+    $('#pnlSub').innerHTML = acct.error
+      ? String(acct.error)
+      : 'nothing has traded live yet';
+    $('#pnlStats').innerHTML = '';
+    drawCurve(null);
+    return;
+  }
+
+  if (useLive && liveKnown) {
+    pnl = Number(acct.unrealized) || 0;
+    pct = acct.equity ? (pnl / acct.equity) * 100 : 0;
+    label = 'live · unrealised';
+    sub = `on <b>${usd(acct.equity)}</b> of equity · ${acct.positions.length} open`;
+    stats = [
+      ['equity', usd(acct.equity)],
+      ['exposure', usd(acct.exposure)],
+      ['positions', String(acct.positions.length)],
+    ];
+  } else if (backtest) {
+    pnl = backtest.pnl;
+    pct = backtest.pnlPct;
+    label = 'backtest · ' + backtest.hours + ' hours';
+    sub = `<b>${usd(backtest.startEquity)}</b> → <b>${usd(backtest.finalEquity)}</b> · not live, not an edge`;
+    curve = backtest.equityCurve;
+    stats = [
+      ['decisions', String(backtest.decisions)],
+      ['fill rate', (backtest.fillRate * 100).toFixed(0) + '%'],
+      ['spread paid', usd(backtest.spreadPaid)],
+      ['execution cost', (backtest.spreadPaid / backtest.startEquity * 100).toFixed(3) + '%'],
+    ];
+  } else {
+    $('#pnlNum').textContent = '—';
+    $('#pnlLabel').textContent = 'no account yet';
+    $('#pnlSub').innerHTML = 'set <b>lighter.accountIndex</b> in keeper/config.json';
+    return;
+  }
+
+  const dir = pnl > 0 ? 'up' : pnl < 0 ? 'dn' : 'flat';
+  $('#pnlNum').className = 'pnl-num ' + dir;
+  $('#pnlNum').textContent = (pnl >= 0 ? '+' : '') + usd(pnl);
+  $('#pnlLabel').textContent = label;
+  $('#pnlSub').innerHTML = `<b class="${dir}" style="color:${pnl >= 0 ? 'var(--grn)' : 'var(--short)'}">` +
+    `${pnl >= 0 ? '+' : ''}${pct.toFixed(2)}%</b> &nbsp; ${sub}`;
+
+  $('#pnlStats').innerHTML = stats.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
+  drawCurve(curve);
+}
+
+function drawCurve(curve) {
+  const c = $('#curve');
+  if (!c) return;
+  if (c.clientWidth < 10) { requestAnimationFrame(() => drawCurve(curve)); return; }
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = c.clientWidth, H = 92;
+  c.width = W * dpr; c.height = H * dpr;
+  const x = c.getContext('2d');
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, W, H);
+  $('#curveFrom').textContent = ''; $('#curveTo').textContent = '';
+  if (!curve || curve.length < 2) return;
+
+  const vals = curve.map((p) => p.equity);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = (hi - lo) || 1;
+  const base = curve[0].equity;
+  const px = (i) => (i / (curve.length - 1)) * (W - 2) + 1;
+  const py = (v) => H - 6 - ((v - lo) / span) * (H - 14);
+
+  // the starting line, so up and down are legible at a glance
+  x.strokeStyle = 'rgba(78,130,102,.5)'; x.setLineDash([2, 4]); x.lineWidth = 1;
+  x.beginPath(); x.moveTo(0, py(base)); x.lineTo(W, py(base)); x.stroke();
+  x.setLineDash([]);
+
+  const end = vals[vals.length - 1];
+  const col = end >= base ? '43,255,136' : '255,77,77';
+
+  x.beginPath();
+  curve.forEach((p, i) => (i ? x.lineTo(px(i), py(p.equity)) : x.moveTo(px(i), py(p.equity))));
+  x.lineTo(px(curve.length - 1), H); x.lineTo(px(0), H); x.closePath();
+  const g = x.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, `rgba(${col},.22)`); g.addColorStop(1, `rgba(${col},0)`);
+  x.fillStyle = g; x.fill();
+
+  x.beginPath();
+  curve.forEach((p, i) => (i ? x.lineTo(px(i), py(p.equity)) : x.moveTo(px(i), py(p.equity))));
+  x.strokeStyle = `rgb(${col})`; x.lineWidth = 1.6;
+  x.shadowColor = `rgba(${col},.55)`; x.shadowBlur = 6;
+  x.stroke(); x.shadowBlur = 0;
+
+  x.fillStyle = `rgb(${col})`;
+  x.beginPath(); x.arc(px(curve.length - 1), py(end), 2.6, 0, 7); x.fill();
+
+  $('#curveFrom').textContent = curve[0].hour ? curve[0].hour.replace('T', ' ') + ':00' : '';
+  $('#curveTo').textContent = curve[curve.length - 1].hour ? curve[curve.length - 1].hour.replace('T', ' ') + ':00' : '';
 }
 
 /* ═══ the tape ════════════════════════════════════════════════════════════════════
@@ -742,7 +896,7 @@ addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if 
 
 fetch('backtest.json').then((r) => (r.ok ? r.json() : null)).then((b) => {
   backtest = b;
-  if (latest) renderFeed(latest);
+  if (latest) { renderFeed(latest); renderPnl(latest); }
 }).catch(() => {});
 
 document.querySelectorAll('#tapeMode button').forEach((b) => {
@@ -750,7 +904,7 @@ document.querySelectorAll('#tapeMode button').forEach((b) => {
     document.querySelectorAll('#tapeMode button').forEach((x) => x.classList.remove('on'));
     b.classList.add('on');
     tapeMode = b.dataset.mode;
-    if (latest) renderFeed(latest);
+    if (latest) { renderFeed(latest); renderPnl(latest); }
   });
 });
 
