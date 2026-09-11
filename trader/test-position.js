@@ -268,6 +268,50 @@ ok('the deadband STILL blocks a taker order of the same size', () => {
   assert.match(p.reason, /deadband/);
 });
 
+console.log('\nthe fly choosing for itself');
+const mood = (appetite) => ({ appetite, patience: 1 - appetite, octopamineHz: 0, serotoninHz: 0, dopamineHz: 0 });
+
+ok('appetite decides how much of the allowance is taken', () => {
+  const hungry = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+                        decision: { ...LONG, mood: mood(1) } });
+  const calm = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+                      decision: { ...LONG, mood: mood(0.25) } });
+  assert.strictEqual(hungry.target, 25000, 'a flooded fly takes the whole allowance');
+  assert.strictEqual(calm.target, 6250, 'a calm one takes a quarter of it');
+});
+ok('the operator ceiling still binds whatever the fly wants', () => {
+  const p = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+                   decision: { ...LONG, mood: mood(1) } });
+  assert.ok(p.target <= 100000 * SCALE.maxFraction, 'the fly must not exceed the ceiling');
+  assert.strictEqual(p.ceiling, 0.25);
+});
+ok('an unaroused fly takes no position at all', () => {
+  const p = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+                   decision: { ...LONG, mood: mood(0) } });
+  assert.strictEqual(p.target, 0);
+});
+ok('patience rests the order BEHIND the touch, for a better price', () => {
+  // bid 0.6480 / ask 0.6490, spread 0.0010
+  const impatient = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+                           decision: { ...LONG, mood: mood(1) } });
+  const patient = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+                         decision: { ...LONG, mood: mood(0.5) } });
+  assert.strictEqual(impatient.order.limitPrice, 0.648, 'an aroused fly sits at the touch');
+  assert.ok(patient.order.limitPrice < 0.648, 'a calm one bids lower and may not get filled');
+  assert.strictEqual(patient.order.limitPrice, 0.6475);
+});
+ok('a patient SELL rests above the ask, not below it', () => {
+  const p = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+                   decision: { ...SHORT, mood: mood(0.5) } });
+  assert.ok(p.order.limitPrice > 0.649, 'a patient sell must ask MORE, not less');
+  assert.strictEqual(p.order.limitPrice, 0.6495);
+});
+ok('no mood at all falls back to the full allowance and the touch', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: TOUCH });
+  assert.strictEqual(p.target, 25000);
+  assert.strictEqual(p.order.limitPrice, 0.648);
+});
+
 ok('a position the fly stopped looking at goes stale', () => {
   const now = 1000000000;
   const s = stale({

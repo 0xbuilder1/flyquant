@@ -95,6 +95,9 @@ function loadConfig() {
   const r = d.rates;
   console.log(`LPLC2 ${r.escape.hz.toFixed(1)}  MN9 ${r.feed.hz.toFixed(1)}  MDN ${r.retreat.hz.toFixed(1)}  ` +
     `DNp09 ${r.freeze.hz.toFixed(1)}  DNa02 ${r.steer.hz.toFixed(1)}   [DNp01 ${r.giantFiber.spikes}]`);
+  console.log(`mood: octopamine ${d.mood.octopamineHz.toFixed(1)}Hz vs serotonin ${d.mood.serotoninHz.toFixed(1)}Hz` +
+    `  ->  appetite ${(d.mood.appetite * 100).toFixed(0)}%, patience ${(d.mood.patience * 100).toFixed(0)}%` +
+    `   [dopamine ${d.mood.dopamineHz.toFixed(1)}Hz, read but not acted on]`);
   console.log(`\n  ${d.action.toUpperCase()} ${d.action === 'hold' ? '' : (d.size * 100).toFixed(1) + '% '}` +
     `${pass.chosen ? pass.chosen.symbol : ''}\n  ${d.why}`);
 

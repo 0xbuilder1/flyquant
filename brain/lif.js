@@ -69,6 +69,7 @@ class Brain {
       bodies: view('bodies.bin', BigInt64Array),
       types: JSON.parse(fs.readFileSync(path.join(dir, 'types.json'), 'utf8')),
       classes: JSON.parse(fs.readFileSync(path.join(dir, 'classes.json'), 'utf8')),
+      modulators: JSON.parse(fs.readFileSync(path.join(dir, 'modulators.json'), 'utf8')),
     });
   }
 

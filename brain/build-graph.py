@@ -151,6 +151,14 @@ def main():
     # so without this DNa02 is two anonymous neurons and the fly cannot turn. 1 = left, 2 = right.
     side_of = np.zeros(n, dtype=np.int8)
 
+    # THE NEUROMODULATORS, kept as their own populations.
+    #
+    # Sign alone throws away what makes these interesting: octopamine is the insect noradrenaline
+    # and sets arousal, serotonin sets patience and feeding persistence, dopamine carries reward.
+    # They are a few hundred neurons out of 165,836 and they modulate what the rest of the animal
+    # does -- which is exactly the shape of a decision the fly should be making for itself.
+    modulators = {'octopamine': [], 'serotonin': [], 'dopamine': []}
+
     sign = np.zeros(n, dtype=np.int8)
     nt_counts = {}
     unknown = 0
@@ -162,6 +170,8 @@ def main():
             unknown += 1
             s = 0            # contributes NOTHING. A guessed sign is a guessed decision.
         sign[i] = s
+        if v in modulators:
+            modulators[v].append(i)
     log(f'signs: {nt_counts}')
     log(f'{unknown:,} neurons have no usable transmitter prediction and are silent presynaptically')
 
@@ -239,6 +249,9 @@ def main():
         json.dump(classes, f)
     with open(os.path.join(OUT, 'columns.json'), 'w') as f:
         json.dump(columns, f)
+    with open(os.path.join(OUT, 'modulators.json'), 'w') as f:
+        json.dump(modulators, f)
+    log('modulators: ' + ', '.join(f'{k} {len(v)}' for k, v in modulators.items()))
 
     # the point cloud, centred and scaled to int16 so the browser downloads ~1MB instead of ~10
     xyz = np.array(cloud_xyz, dtype=np.float64)

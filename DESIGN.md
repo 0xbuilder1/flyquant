@@ -162,6 +162,33 @@ capital.** At a 0.25 budget an account needs roughly $40 to open at all and a fe
 incremental adds clear a $10 minimum regularly. There is no setting that makes a small account trade
 often, and inventing one would mean overriding the exchange's own limits.
 
+## What the fly decides, and what the operator only bounds
+
+*Added 2026-09-11.* The fly chose a direction, a market and a conviction; how much money any of that
+was worth was a constant in a config file. That was the operator making the trade and the fly
+pointing at it.
+
+MaleCNS types the neuromodulators, and two of them are a genuine opposing behavioural axis:
+**octopamine** (101 neurons) is the invertebrate noradrenaline -- arousal, flight initiation,
+aggression, raised responsiveness; **serotonin** (48) is the other way -- quiescence, satiety,
+persistence over urgency. Both fire during a pass: measured live at 39.7Hz against 9.9Hz.
+
+So the balance between them is read directly, and it needs no constant:
+
+    appetite = OA / (OA + 5HT)      how much of the allowance to take
+    patience = 1 - appetite         how far behind the touch to rest
+
+**Appetite replaces the operator's number as the SIZE.** `maxFraction` became a ceiling the fly moves
+inside: a convinced but unaroused fly takes a small position, a convinced and flooded one takes the
+whole allowance, and zero arousal takes nothing at all. **Patience sets the price**: a calm fly rests
+further behind the touch for a better fill it may never get; an aroused one sits at the touch and
+takes what is there. The unit is the spread itself, so again nothing was chosen.
+
+**DOPAMINE IS READ AND DELIBERATELY NOT ACTED ON.** 392 neurons, firing at ~19Hz. In this animal it
+is the mushroom body's teaching signal -- it is what learning would be made of. This fly does not
+learn, so there is nothing for it to teach, and wiring it to a position size would be borrowing the
+word "reward" for something that is not one. It is published so its silence is visible.
+
 ## Losses should be directional, not executional
 
 *Added 2026-09-11.* Lighter charges **zero maker fee and zero taker fee**, so the entire cost of

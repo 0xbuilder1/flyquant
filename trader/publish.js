@@ -124,6 +124,7 @@ function build({ brain, arena, seats, markets, pass, decision, meta }) {
       distance: pass.distance,
       smelledOf: pass.smelledOf,
       smelled: pass.smelled,
+      mood: decision.mood || null,
       action: decision.action,
       size: Math.round(decision.size * 10000) / 10000,
       why: decision.why,

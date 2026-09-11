@@ -43,7 +43,15 @@ function currentNotional(account, marketId) {
  * would allow. Raising it is the operator taking leverage on deliberately.
  */
 function plan({ account, market, decision, chosen, exposure = {}, depth = null }) {
-  const maxFraction = exposure.maxFraction == null ? 1 : Number(exposure.maxFraction);
+  // THE FLY SETS THE AMOUNT; THE OPERATOR SETS THE CEILING.
+  //
+  // maxFraction used to BE the size whenever conviction was total. It is now a bound the fly moves
+  // inside: its own arousal-to-calm balance (octopamine against serotonin) says how much of the
+  // allowance to take. A fully convinced but unaroused fly takes a small position; a fully convinced
+  // and flooded one takes the whole allowance. Neither is a number anybody typed.
+  const ceiling = exposure.maxFraction == null ? 1 : Number(exposure.maxFraction);
+  const appetite = decision.mood && Number.isFinite(decision.mood.appetite) ? decision.mood.appetite : 1;
+  const maxFraction = ceiling * appetite;
   const equity = Number(account.equity) || 0;
   const mark = Number(market.mark) || 0;
   const marketId = market.marketId;
@@ -51,7 +59,7 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
 
   const base = {
     symbol: market.symbol, marketId, mark, equity, held,
-    action: decision.action, size: decision.size, maxFraction,
+    action: decision.action, size: decision.size, maxFraction, ceiling, appetite,
   };
 
   if (!(equity > 0)) return { ...base, order: null, reason: 'the account has no equity' };
@@ -169,8 +177,18 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
   const side = delta > 0 ? 'buy' : 'sell';
   // Post at the touch on our own side: a buy joins the bid, a sell joins the ask. Never inside,
   // because inside the touch is a worse price for us and buys only queue position.
+  //
+  // AND THE FLY CHOOSES HOW HARD TO ASK. A calm (serotonergic) fly rests BEHIND the touch: a better
+  // price, and a smaller chance of being filled at all. An aroused one sits right at it and takes
+  // what is there. The unit is the spread itself, so there is no constant here either — patience 0
+  // is the touch, patience 1 is one full spread behind it.
+  const patience = decision.mood && Number.isFinite(decision.mood.patience) ? decision.mood.patience : 0;
+  const spread = maker ? Math.max(depth.best.ask - depth.best.bid, 0) : 0;
+  const px = Number(market.priceDecimals) || 6;
   const limitPrice = maker
-    ? Number((side === 'buy' ? depth.best.bid : depth.best.ask).toFixed(Number(market.priceDecimals) || 6))
+    ? Number((side === 'buy'
+        ? depth.best.bid - patience * spread
+        : depth.best.ask + patience * spread).toFixed(px))
     : null;
 
   return {
@@ -187,6 +205,7 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
       // how it goes to the exchange: a resting post-only limit, or a crossing market order
       execution: maker ? 'post-only' : 'market',
       limitPrice,
+      patience,
       spreadBps: depth ? depth.spreadBps : null,
       // closing toward zero never increases risk, and marking it lets the exchange refuse anything
       // that would accidentally open the other side

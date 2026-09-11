@@ -64,24 +64,68 @@ function rates(brain, result) {
  * turning a fraction into a position is the trader's job, under the ceiling, and keeping that
  * boundary is what stops a brain bug from becoming a spend bug.
  */
+/**
+ * THE FLY'S OWN STATE, and the part of the decision that used to be a config constant.
+ *
+ * Direction and conviction came from the motor neurons, but HOW MUCH to commit was the operator's
+ * number alone. It does not have to be. Insects carry the same neuromodulators vertebrates do, and
+ * two of them are broadly opposing behavioural states:
+ *
+ *   OCTOPAMINE  the invertebrate noradrenaline — arousal, flight initiation, aggression, a raised
+ *               responsiveness to everything. An octopamine-flooded fly commits.
+ *   SEROTONIN   the other way — quiescence, satiety, persistence over urgency. A serotonergic fly
+ *               waits.
+ *
+ * So the balance BETWEEN them is a real behavioural axis and it needs no constant to read:
+ *
+ *   appetite = OA / (OA + 5HT)        how much of the allowance to take
+ *   patience = 1 - appetite           how far behind the touch to rest
+ *
+ * That is bounded by construction, has nothing in it anybody chose, and hands the fly two decisions
+ * it previously did not make. The operator keeps a CEILING and stops setting the amount.
+ *
+ * DOPAMINE IS READ AND DELIBERATELY NOT ACTED ON. In this animal it is the mushroom body's teaching
+ * signal — it is what learning would be made of. The fly does not learn, so there is nothing for it
+ * to teach, and wiring it to a position size would be borrowing the word "reward" for something that
+ * is not one. It is published so its silence is visible.
+ */
+function state(brain, result) {
+  const mean = (list) => (list && list.length
+    ? (list.reduce((a, i) => a + result.spikes[i], 0) / list.length) / (result.ms / 1000)
+    : 0);
+  const m = brain.modulators || {};
+  const oa = mean(m.octopamine);
+  const ht = mean(m.serotonin);
+  const da = mean(m.dopamine);
+  const both = oa + ht;
+  return {
+    octopamineHz: oa,
+    serotoninHz: ht,
+    dopamineHz: da,
+    appetite: both > 0 ? oa / both : 0,
+    patience: both > 0 ? ht / both : 1,
+  };
+}
+
 function decide(brain, result) {
   const r = rates(brain, result);
+  const mood = state(brain, result);
   const escape = r.escape.hz / MAX_HZ;
   const feed = r.feed.hz / MAX_HZ;
   const retreat = r.retreat.hz / MAX_HZ;
   const freeze = r.freeze.hz / MAX_HZ;
 
   const top = Math.max(escape, feed, retreat, freeze);
-  if (top <= 0) return { action: 'hold', size: 0, rates: r, why: 'no descending neuron fired' };
+  if (top <= 0) return { action: 'hold', size: 0, rates: r, mood, why: 'no descending neuron fired' };
 
   // Stopping beats moving on a tie. The ambiguous case — everything firing at once — should resolve
   // to doing nothing rather than to doing both.
   if (freeze === top) {
-    return { action: 'hold', size: 0, rates: r, why: `DNp09 dominant at ${r.freeze.hz.toFixed(1)}Hz` };
+    return { action: 'hold', size: 0, rates: r, mood, why: `DNp09 dominant at ${r.freeze.hz.toFixed(1)}Hz` };
   }
   if (escape === top) {
     return {
-      action: 'escape', size: 1, rates: r,
+      action: 'escape', size: 1, rates: r, mood,
       why: `LPLC2 at ${r.escape.hz.toFixed(1)}Hz — something is looming`,
     };
   }
@@ -100,13 +144,15 @@ function decide(brain, result) {
 
   if (feed === top) {
     return {
-      action: 'long', size: conviction(feed, retreat), rates: r,
-      why: `MN9 at ${r.feed.hz.toFixed(1)}Hz against MDN at ${r.retreat.hz.toFixed(1)}Hz`,
+      action: 'long', size: conviction(feed, retreat), rates: r, mood,
+      why: `MN9 at ${r.feed.hz.toFixed(1)}Hz against MDN at ${r.retreat.hz.toFixed(1)}Hz, ` +
+           `appetite ${(mood.appetite * 100).toFixed(0)}%`,
     };
   }
   return {
-    action: 'short', size: conviction(retreat, feed), rates: r,
-    why: `MDN at ${r.retreat.hz.toFixed(1)}Hz against MN9 at ${r.feed.hz.toFixed(1)}Hz`,
+    action: 'short', size: conviction(retreat, feed), rates: r, mood,
+    why: `MDN at ${r.retreat.hz.toFixed(1)}Hz against MN9 at ${r.feed.hz.toFixed(1)}Hz, ` +
+         `appetite ${(mood.appetite * 100).toFixed(0)}%`,
   };
 }
 
@@ -115,4 +161,4 @@ function readoutReport(brain) {
   return READOUT.map((r) => ({ ...r, neurons: brain.ofType(r.type).length }));
 }
 
-module.exports = { READOUT, MAX_HZ, rates, decide, readoutReport };
+module.exports = { READOUT, MAX_HZ, rates, state, decide, readoutReport };
