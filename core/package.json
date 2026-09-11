@@ -1,0 +1,16 @@
+{
+  "name": "@pons/core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The PONS keeper core: config, launch, launch watcher, harvest, the ceiling, the lock, stats. Knows nothing about any sink.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-key.js && node test-launchform.js && node test-core.js"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  },
+  "optionalDependencies": {
+    "@vercel/blob": "^2.0.0"
+  }
+}

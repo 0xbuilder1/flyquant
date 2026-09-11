@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+
+# the MaleCNS download (1.1GB) and the binaries build-graph.py derives from it (42MB).
+# Both are reproducible from the two commands in brain/README.md, and neither belongs in git.
+brain/data/
+brain/graph/
+
+# runtime state: the ledger, receipts, the published stats file, the lock
+keeper/config.json
+keeper/state/
+keeper/state-*/
+site/dist/

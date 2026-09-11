@@ -1,0 +1,11 @@
+{
+  "name": "flybrain",
+  "private": true,
+  "description": "a fruit fly's connectome, with a wallet on Robinhood Chain",
+  "workspaces": ["core", "trader", "keeper"],
+  "scripts": {
+    "brain": "node brain/test-brain.js",
+    "decide": "node brain/test-decide.js",
+    "graph": "python brain/build-graph.py"
+  }
+}
