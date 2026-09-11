@@ -8,8 +8,9 @@ constants, sitting in a flight arena where **57 live perp markets** on Robinhood
 around it. It turns toward one. Its motor neurons decide what to do about it. That decision becomes
 a target position, and the trader reconciles a real Lighter account to it.
 
-Nothing is trading yet. Three seatbelts stand between the fly and a live order, and the Lighter
-deposit leg is blocked on an address nobody has verified.
+Nothing has traded yet. Three independent seatbelts stand between the fly and a live order:
+`--broadcast` on the command, `trade.armed` in the config, and a maximum notional enforced inside
+the signing process itself.
 
 ## Run it
 
@@ -18,7 +19,7 @@ npm install                      # viem, and nothing else at runtime
 python brain/build-graph.py      # once — needs the three MaleCNS files in brain/data/
 npm test                         # the brain suite and the money suite
 node fly.js                      # one pass, dry
-node loop.js --every 45          # keep passing, so the site has something to show
+node loop.js --every 180         # keep passing, so the site has something to show
 node site/serve.js               # the site on :4173
 ```
 
@@ -53,16 +54,19 @@ site/       one page, reading stats.json and nothing else
 | MaleCNS → simulation | **live.** 165,836 neurons, 6,242,118 edges, 89.9M synapses |
 | Lighter market data | **live.** 57 markets, public REST, no key |
 | Lighter account + positions | **live, read-only.** Public by index; the site links to the same URL |
-| the fly's decision → target position | **live.** 17 tests cover the arithmetic |
+| the fly's decision → target position | **live.** 44 tests cover the arithmetic |
 | placing an order | **built, disarmed.** Needs `--broadcast` *and* `trade.armed` *and* a key |
-| $FLY launch + escrow harvest | **wired, unlaunched.** `npm run preflight` |
-| fees → USDG → Lighter margin | **blocked.** See below |
+| $FLY launch + escrow harvest | **wired, unlaunched.** `node keeper/launch.js serve` |
+| fees → USDG → Lighter margin | **built, disarmed.** `node keeper/harvest.js` |
 
-**The deposit leg is blocked on purpose.** The path is `escrow.claim()` → wrap → swap ETH→USDG on
-the 1bp v3 pool → deposit as Lighter margin. The deposit contract address on 4663 has not been read
-from an official source, and a wrong deposit address is a total loss rather than a retry. Until
-`fly.deposit.address` and `fly.deposit.verifiedBy` are both set, the sink accumulates fees and
-reports them. `spentRaw()` returns `0n` honestly: nothing has left.
+**Every address on the money path was read from the chain by this repo, not copied from a document.**
+The funding path is `escrow.claim()` → wrap ETH→WETH → swap to USDG on the 1bp v3 pool → deposit as
+Lighter margin. That last contract is a **proxy**: its 1,367 bytes contain no selector at all, so
+checking it alone says `deposit()` does not exist — the EIP-1967 implementation slot points at
+`0x82de5b1161c93afdfe21ba0d5343f01cd7401d90`, whose 23,168 bytes do contain `0x8a857083`. USDG
+answers `symbol()=USDG decimals()=6`, WETH answers WETH/18, the pool answers `token0=WETH
+token1=USDG fee=100`. A wrong deposit address is a total loss rather than a retry, which is why
+`fly.deposit.verifiedBy` has to say *how* it was checked before anything arms.
 
 ## Before anything can trade
 
@@ -75,10 +79,16 @@ reports them. `spentRaw()` returns `0n` honestly: nothing has left.
 4. Run passes dry until the planned orders are ones you would have placed yourself.
 5. `trade.armed: true`, then `node fly.js --broadcast`.
 
-**Trade frequency is bound by capital, not by a dial.** Lighter's minimum order is about $10. At the
-default risk budget of 0.25, an account needs roughly $40 before it can open at all, and a few
-hundred before incremental adds clear the minimum regularly. There is no setting that makes a small
-account trade often; that is arithmetic.
+**Trade frequency is bound by capital, not by a dial.** Lighter's minimum order is about $10, so an
+account needs roughly `$10 / maxFraction` before it can open at all and several times that before
+incremental adds clear the minimum regularly. There is no setting that makes a small account trade
+often; that is arithmetic, and the config says so where the number lives.
+
+**Losses are meant to be directional, not executional.** Lighter charges zero maker and zero taker
+fee, so the whole cost of trading is the spread — and only whoever crosses it pays. Opening orders
+rest post-only at the touch and fill at the price named or not at all, which makes slippage zero by
+construction rather than small by assumption. What is paid instead is adverse selection, which is a
+directional cost. An escape crosses anyway: an order that might not fill is not an exit.
 
 ## What the site may claim
 
