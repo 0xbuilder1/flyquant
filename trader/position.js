@@ -98,12 +98,17 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
     depthCapped = true;
   }
 
+  // maker or taker is decided HERE, before the deadband, because it changes whether a deadband is
+  // worth having at all
+  const isExit = target === 0;
+  const maker = !isExit && !!(depth && depth.best);
+
   const delta = target - held;
   const minQuote = Number(market.minQuote) || 0;
   const minBase = Number(market.minBase) || 0;
   const sizeBase = Math.abs(delta) / mark;
 
-  const out = { ...base, target, delta, sizeBase, capped, depthCapped, room, otherExposure,
+  const out = { ...base, target, delta, sizeBase, capped, depthCapped, maker, room, otherExposure,
               depth: depth ? { min: depth.min, bid: depth.bid, ask: depth.ask, spreadBps: depth.spreadBps } : null };
 
   if (delta === 0) return { ...out, order: null, reason: 'already at target' };
@@ -122,9 +127,16 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
   // which sounded like prudence and was actually a hole: conviction drifting 1.0 to 0.95 is a
   // reduction, so every downward wobble traded anyway and half the churn walked straight through
   // the band. A 2% trim is churn whichever direction it points. Getting out completely is not.
+  //
+  // AND IT ONLY APPLIES TO ORDERS THAT CROSS. The deadband exists to stop the fly paying the spread
+  // over and over on noise. A post-only order does not pay the spread — it is PAID the spread — so
+  // there is nothing to protect it from, and blocking it would be the keeper overriding the fly for
+  // no benefit at all. Oscillation on resting orders is not churn; buying at the bid and selling at
+  // the ask is the market maker's whole business. So a maker order goes through at any size the
+  // exchange will accept, and the fly gets its full resolution back.
   const deadband = (exposure.deadbandFraction == null ? 0.02 : Number(exposure.deadbandFraction)) * equity;
   const closing = target === 0;
-  if (!closing && Math.abs(delta) < deadband) {
+  if (!maker && !closing && Math.abs(delta) < deadband) {
     return { ...out, order: null,
       reason: `delta $${Math.abs(delta).toFixed(2)} is inside the $${deadband.toFixed(2)} deadband` };
   }
@@ -140,16 +152,42 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
     return { ...out, order: null, reason: `size rounds to ${rounded} at this market's precision, under its ${minBase} minimum` };
   }
 
+  // ── MAKER OR TAKER ──────────────────────────────────────────────────────────────────────────
+  //
+  // THE FLY'S LOSSES SHOULD BE DIRECTIONAL, NOT EXECUTION. Lighter charges zero maker and zero
+  // taker fee, so the entire cost of trading is the spread — and the spread is only paid by whoever
+  // crosses it. A post-only order resting at the touch never crosses: it fills at the price we named
+  // or not at all. That makes slippage ZERO BY CONSTRUCTION rather than small by assumption.
+  //
+  // What it costs instead is adverse selection — a resting bid fills exactly when the market is
+  // coming down on it. That is a real cost and it is a DIRECTIONAL one, which is the trade being
+  // made deliberately here.
+  //
+  // AN ESCAPE CROSSES ANYWAY. The fly is fleeing; an exit that might not fill is not an exit, and a
+  // position you cannot leave is the thing every other cap in this file exists to prevent. It pays
+  // half the spread once — 0.25bp on BTC, 6.8bp on PONS — and that is the price of certainty.
+  const side = delta > 0 ? 'buy' : 'sell';
+  // Post at the touch on our own side: a buy joins the bid, a sell joins the ask. Never inside,
+  // because inside the touch is a worse price for us and buys only queue position.
+  const limitPrice = maker
+    ? Number((side === 'buy' ? depth.best.bid : depth.best.ask).toFixed(Number(market.priceDecimals) || 6))
+    : null;
+
   return {
     ...out,
+    maker,
     order: {
       marketId,
       symbol: market.symbol,
-      side: delta > 0 ? 'buy' : 'sell',
+      side,
       isAsk: delta < 0,
       sizeBase: Number(rounded.toFixed(Number(market.sizeDecimals) || 0)),
       notional: Math.abs(delta),
       mark,
+      // how it goes to the exchange: a resting post-only limit, or a crossing market order
+      execution: maker ? 'post-only' : 'market',
+      limitPrice,
+      spreadBps: depth ? depth.spreadBps : null,
       // closing toward zero never increases risk, and marking it lets the exchange refuse anything
       // that would accidentally open the other side
       reduceOnly: Math.abs(target) < Math.abs(held) && Math.sign(target || held) === Math.sign(held),

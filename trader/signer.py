@@ -78,23 +78,52 @@ async def place(args, order, key):
         return res
 
     coid = int(time.time() * 1000) & 0x7FFFFFFFFFFF
-    scale = 10 ** order["sizeDecimals"]
-    base_amount = int(round(order["sizeBase"] * scale))
+    base_amount = int(round(order["sizeBase"] * (10 ** order["sizeDecimals"])))
     if base_amount <= 0:
         fail("size rounds to zero at this market's precision")
 
+    execution = order.get("execution", "market")
+
     try:
-        res = unwrap(await signer.create_market_order_limited_slippage(
-            market_index=order["marketId"],
-            client_order_index=coid,
-            base_amount=base_amount,
-            max_slippage=order.get("maxSlippage", 0.005),
-            is_ask=bool(order["isAsk"]),
-            reduce_only=bool(order.get("reduceOnly", False)),
-            ideal_price=order.get("idealPrice"),
-        ))
+        if execution == "post-only":
+            # A RESTING ORDER THAT CANNOT CROSS. POST_ONLY is rejected by the exchange if it would
+            # take, which is the guarantee: it fills at the price we named or it does not fill. That
+            # is what makes slippage zero rather than small.
+            #
+            # It EXPIRES BEFORE THE NEXT PASS, and that is load-bearing. Nothing here cancels
+            # anything: an unfilled order simply dies, and the next pass reads the account, sees what
+            # actually filled, and reconciles from there. A state-based reconciler needs no order
+            # management at all, which removes the whole class of bugs where the keeper's idea of its
+            # open orders drifts from the exchange's.
+            price = int(round(order["limitPrice"] * (10 ** order["priceDecimals"])))
+            if price <= 0:
+                fail("limit price rounds to zero at this market's precision")
+            expiry = int(time.time() * 1000) + int(order.get("expirySeconds", 170)) * 1000
+            res = unwrap(await signer.create_order(
+                market_index=order["marketId"],
+                client_order_index=coid,
+                base_amount=base_amount,
+                price=price,
+                is_ask=bool(order["isAsk"]),
+                order_type=lighter.SignerClient.ORDER_TYPE_LIMIT,
+                time_in_force=lighter.SignerClient.ORDER_TIME_IN_FORCE_POST_ONLY,
+                reduce_only=bool(order.get("reduceOnly", False)),
+                order_expiry=expiry,
+            ))
+        else:
+            # Crossing, for an exit. The fly is fleeing and an order that might not fill is not an
+            # exit. Bounded by max_slippage so "get out" can never become "get out at any price".
+            res = unwrap(await signer.create_market_order_limited_slippage(
+                market_index=order["marketId"],
+                client_order_index=coid,
+                base_amount=base_amount,
+                max_slippage=order.get("maxSlippage", 0.005),
+                is_ask=bool(order["isAsk"]),
+                reduce_only=bool(order.get("reduceOnly", False)),
+                ideal_price=order.get("idealPrice"),
+            ))
     except Exception as e:                                   # noqa: BLE001
-        fail(f"order rejected: {e}", clientOrderIndex=coid)
+        fail(f"order rejected: {e}", clientOrderIndex=coid, execution=execution)
     finally:
         close = getattr(signer, "close", None)
         if close:
@@ -107,6 +136,7 @@ async def place(args, order, key):
     out({
         "ok": True,
         "broadcast": True,
+        "execution": execution,
         "clientOrderIndex": coid,
         "baseAmount": base_amount,
         "txHash": tx_hash,
@@ -127,7 +157,10 @@ def main():
     except json.JSONDecodeError as e:
         fail(f"could not parse the order: {e}")
 
-    for field in ("marketId", "isAsk", "sizeBase", "sizeDecimals"):
+    required = ["marketId", "isAsk", "sizeBase", "sizeDecimals"]
+    if order.get("execution") == "post-only":
+        required += ["limitPrice", "priceDecimals"]
+    for field in required:
         if field not in order:
             fail(f"the order is missing {field}; nothing here has a default that costs money")
 

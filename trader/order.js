@@ -106,6 +106,7 @@ async function execute({ plan, cfg, broadcast, context = {} }) {
       ...common,
       status: 'dry',
       side: o.side, sizeBase: o.sizeBase, notional: round(o.notional), reduceOnly: o.reduceOnly,
+      execution: o.execution, limitPrice: o.limitPrice, spreadBps: o.spreadBps,
       note: !armed ? 'trade.armed is false' : 'no --broadcast',
       verify: verifyAccount(cfg.accountIndex),
     }, cfg.stateRoot);
@@ -118,6 +119,13 @@ async function execute({ plan, cfg, broadcast, context = {} }) {
     sizeDecimals: cfg.sizeDecimals || 0,
     notional: o.notional,
     reduceOnly: o.reduceOnly,
+    execution: o.execution || 'market',
+    limitPrice: o.limitPrice,
+    priceDecimals: cfg.priceDecimals || 6,
+    // An unfilled post-only order must be GONE before the next pass computes a fresh target,
+    // otherwise two passes' worth of intent rest in the book at once and the account ends up
+    // holding double what the fly asked for.
+    expirySeconds: cfg.expirySeconds || 170,
     maxSlippage: cfg.maxSlippage == null ? 0.005 : cfg.maxSlippage,
     idealPrice: o.mark,
   }, cfg, true);
@@ -134,6 +142,7 @@ async function execute({ plan, cfg, broadcast, context = {} }) {
     ...common,
     status: 'sent',
     side: o.side, sizeBase: o.sizeBase, notional: round(o.notional), reduceOnly: o.reduceOnly,
+    execution: o.execution, limitPrice: o.limitPrice, spreadBps: o.spreadBps,
     txHash: res.txHash || null,
     clientOrderIndex: res.clientOrderIndex || null,
     verify: res.txHash ? verifyTx(res.txHash) : verifyAccount(cfg.accountIndex),

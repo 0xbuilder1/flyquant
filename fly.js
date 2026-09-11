@@ -108,6 +108,9 @@ function loadConfig() {
     maxSlippage: (cfg.lighter && cfg.lighter.maxSlippage),
     sizeDecimals: (markets.find((m) => m.marketId === marketId) || {}).market
       ? markets.find((m) => m.marketId === marketId).market.sizeDecimals : 2,
+    priceDecimals: (markets.find((m) => m.marketId === marketId) || {}).market
+      ? markets.find((m) => m.marketId === marketId).market.priceDecimals : 6,
+    expirySeconds: Math.max(30, ((cfg.pass && cfg.pass.everySeconds) || 180) - 10),
     armed: !!tradeCfg.armed,
     stateRoot: path.join(__dirname, 'keeper', 'state'),
   });
@@ -151,6 +154,9 @@ function loadConfig() {
     if (plan.order) {
       console.log(`\nplan: hold $${plan.held.toFixed(2)} → target $${plan.target.toFixed(2)} ` +
         `= ${plan.order.side} ${plan.order.sizeBase} ${plan.symbol} ($${plan.order.notional.toFixed(2)})` +
+        (plan.order.execution === 'post-only'
+          ? `  RESTING at ${plan.order.limitPrice} (never crosses; spread ${(plan.order.spreadBps || 0).toFixed(1)}bp)`
+          : `  CROSSING (exit)`) +
         (plan.capped ? `  [capped into $${plan.room.toFixed(2)} of book room]` : '') +
         (plan.depthCapped ? `  [CAPPED BY DEPTH: the book only carries $${Math.round(plan.depth.min).toLocaleString()} on its thin side]` : ''));
       console.log(`  ${feedEntry.status.toUpperCase()}${feedEntry.note ? ' — ' + feedEntry.note : ''}` +

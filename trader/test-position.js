@@ -219,6 +219,55 @@ ok('no depth reading means no depth cap, and the other caps still apply', () => 
   assert.strictEqual(p.target, 25000);
 });
 
+console.log('\nmaker or taker — where the losses are allowed to come from');
+const TOUCH = { min: 570008, bid: 570008, ask: 583515, spreadBps: 6.7,
+                best: { bid: 0.6480, ask: 0.6490 } };
+
+ok('an opening order rests post-only and never crosses', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: TOUCH });
+  assert.strictEqual(p.maker, true);
+  assert.strictEqual(p.order.execution, 'post-only');
+});
+ok('a BUY posts at the bid, not the ask — crossing is the thing being avoided', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: TOUCH });
+  assert.strictEqual(p.order.side, 'buy');
+  assert.strictEqual(p.order.limitPrice, 0.648, 'a buy that posts at the ask has paid the spread');
+});
+ok('a SELL posts at the ask', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: SHORT, exposure: SCALE, depth: TOUCH });
+  assert.strictEqual(p.order.side, 'sell');
+  assert.strictEqual(p.order.limitPrice, 0.649);
+});
+ok('AN ESCAPE CROSSES — an exit that might not fill is not an exit', () => {
+  const p = plan({ account: account(100000, [pos(44, 20000)]), market: MARKET,
+                   decision: ESCAPE, exposure: SCALE, depth: TOUCH });
+  assert.strictEqual(p.maker, false);
+  assert.strictEqual(p.order.execution, 'market');
+});
+ok('no book reading falls back to crossing, rather than posting a price it cannot see', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: null });
+  assert.strictEqual(p.maker, false);
+  assert.strictEqual(p.order.execution, 'market');
+  assert.strictEqual(p.order.limitPrice, null);
+});
+ok('THE DEADBAND DOES NOT BLOCK A MAKER ORDER — the fly keeps its full resolution', () => {
+  // a $250 tweak on $100,000: far inside the $2,000 deadband, and it goes through anyway because a
+  // resting order pays no spread and there is nothing to protect it from
+  const fine = { ...MARKET, minBase: 0.01, sizeDecimals: 2 };
+  const p = plan({ account: account(100000, [pos(44, 25000)]), market: fine,
+                   decision: { action: 'long', size: 0.99, why: '' }, exposure: SCALE, depth: TOUCH });
+  assert.ok(p.order, 'a maker order must not be deadbanded');
+  assert.strictEqual(p.order.execution, 'post-only');
+  assert.strictEqual(Math.round(p.delta), -250);
+});
+ok('the deadband STILL blocks a taker order of the same size', () => {
+  const fine = { ...MARKET, minBase: 0.01, sizeDecimals: 2 };
+  const p = plan({ account: account(100000, [pos(44, 25000)]), market: fine,
+                   decision: { action: 'long', size: 0.99, why: '' }, exposure: SCALE, depth: null });
+  assert.strictEqual(p.order, null);
+  assert.match(p.reason, /deadband/);
+});
+
 ok('a position the fly stopped looking at goes stale', () => {
   const now = 1000000000;
   const s = stale({

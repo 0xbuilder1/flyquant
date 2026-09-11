@@ -133,6 +133,7 @@ async function depth(marketId, band = 0.005) {
   const askDepth = sum(asks, (p) => p <= mid * (1 + band));
   return {
     mid, band,
+    best,                               // the touch — where a maker order rests
     bid: bidDepth,
     ask: askDepth,
     min: Math.min(bidDepth, askDepth),

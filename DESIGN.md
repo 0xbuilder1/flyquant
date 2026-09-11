@@ -162,6 +162,46 @@ capital.** At a 0.25 budget an account needs roughly $40 to open at all and a fe
 incremental adds clear a $10 minimum regularly. There is no setting that makes a small account trade
 often, and inventing one would mean overriding the exchange's own limits.
 
+## Losses should be directional, not executional
+
+*Added 2026-09-11.* Lighter charges **zero maker fee and zero taker fee**, so the entire cost of
+trading here is the spread — and the spread is only paid by whoever crosses it.
+
+**AN OPENING ORDER RESTS POST-ONLY AT THE TOUCH.** A buy joins the bid; a sell joins the ask; never
+inside, because inside the touch is a worse price and buys nothing but queue position. Post-only is
+rejected by the exchange if it would cross, which is the guarantee that matters: **the order fills at
+the price we named or it does not fill.** Slippage becomes zero by construction rather than small by
+assumption.
+
+Measured spreads on 2026-09-11: BTC 0.5bp, SPY 0.3bp, ETH 1.7bp — and PONS 13.6bp, USAR 20.2bp. So
+crossing costs almost nothing on the liquid markets and a great deal on exactly the thin ones the
+fly is most drawn to.
+
+**WHAT IS PAID INSTEAD IS ADVERSE SELECTION**, and it is not free. A resting bid fills precisely when
+the market is coming down onto it, so the fills you get are selected against you. That is a real
+cost — but it is a *directional* one, which is the trade being made here deliberately: if the fly
+loses money it should be because it was wrong about direction, not because of how the order reached
+the book.
+
+**AN ESCAPE CROSSES ANYWAY.** The fly is fleeing, and an order that might not fill is not an exit.
+It pays half the spread once and gets certainty, which is the whole point of the behaviour.
+
+**UNFILLED ORDERS EXPIRE; NOTHING CANCELS THEM.** Each post-only order carries an expiry a little
+shorter than the gap between passes. Nothing tracks open orders, because the reconciler is
+state-based: the next pass reads the account, sees what actually filled, and computes the difference
+from there. Partial fills, no fills and full fills all take the same path, and the entire class of
+bugs where the keeper's idea of its open orders drifts from the exchange's simply does not exist.
+
+**THE DEADBAND NOW APPLIES ONLY TO ORDERS THAT CROSS.** It existed to stop the fly paying the spread
+repeatedly on noise. A resting order pays no spread, so there is nothing to protect it from, and
+blocking it would be the keeper overriding the fly for no benefit — the fly gets its full resolution
+back. Oscillation on resting orders is not churn: buying at the bid and selling at the ask is a
+market maker's entire business.
+
+**What this costs the fly is certainty of execution.** Its control over *intent* is now total; its
+control over *fills* is not. Fill rate becomes the number to watch, and a market too thin to fill a
+resting order is a market the fly will simply not end up in.
+
 **THREE SEATBELTS, INDEPENDENT.** `--broadcast` on the command, `trade.armed` in the config, and a
 maximum notional enforced inside the signing process itself — so a bug in the sizing cannot spend
 more than the operator armed, whatever the keeper believes. The signer is a separate Python process
