@@ -7,19 +7,43 @@
 <meta name="description" content="165,836 neurons of a real fruit fly, in a flight arena with 57 live perp markets. Every dot is a cell body. Every flash is a spike.">
 <style>
   :root {
-    --bg:#07080a; --panel:#0c0e12; --line:#1b1f27; --ink:#d7dae0; --dim:#6a7180; --faint:#464d59;
-    --hot:#ff7a2f; --cool:#3ea0ff; --long:#22c55e; --short:#ef4444; --loom:#ff3b30; --steer:#a78bfa;
+    --bg:#050706; --panel:#080b09; --line:#14261c; --ink:#c8f5d8; --dim:#4e8266; --faint:#2d5442;
+    --hot:#ffb000;            /* amber phosphor, for the fly and for anything alive */
+    --grn:#2bff88;            /* green phosphor, the primary */
+    --cool:#38bdf8; --long:#2bff88; --short:#ff4d4d; --loom:#ff4d4d; --steer:#c08bff;
     --mono: ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+    --glow: 0 0 6px rgba(43,255,136,.28);
   }
+
+  /* ── CRT ─────────────────────────────────────────────────────────────────────────
+     Scanlines, a slow flicker and a vignette, all pointer-events:none so nothing here
+     can ever intercept a click. Honoured for anyone who asked for less motion.        */
+  .crt,.vig{position:fixed;inset:0;pointer-events:none;z-index:60}
+  .crt{background:repeating-linear-gradient(0deg,
+        rgba(0,0,0,.30) 0px, rgba(0,0,0,.30) 1px, transparent 1px, transparent 4px);
+       mix-blend-mode:multiply;opacity:.34}
+  .vig{background:radial-gradient(ellipse at 50% 45%, transparent 52%, rgba(0,0,0,.62) 100%)}
+  .flick{position:fixed;inset:0;pointer-events:none;z-index:61;background:rgba(43,255,136,.018);
+         animation:fl 5.5s steps(2) infinite}
+  @keyframes fl{0%,96%{opacity:0}97%{opacity:1}100%{opacity:0}}
+  @media (prefers-reduced-motion: reduce){.flick{display:none}.crt{opacity:.3}}
+
   *{box-sizing:border-box}
-  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px;line-height:1.5}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px;line-height:1.5;
+    text-shadow:0 0 1px rgba(43,255,136,.20)}
+  ::selection{background:var(--grn);color:#04160c}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-track{background:#070a08}
+  ::-webkit-scrollbar-thumb{background:#17392a;border:1px solid #0c1a13}
+  ::-webkit-scrollbar-thumb:hover{background:#1e5038}
   a{color:var(--hot);text-decoration:none}
   .top{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-  .brand{font-weight:700;letter-spacing:.22em;font-size:14px}
-  .brand i{color:var(--hot);font-style:normal}
+  .brand{font-weight:700;letter-spacing:.22em;font-size:14px;color:var(--grn);text-shadow:var(--glow)}
+  .brand i{color:var(--hot);font-style:normal;text-shadow:0 0 8px rgba(255,176,0,.45)}
+  .top{background:linear-gradient(180deg,rgba(43,255,136,.035),transparent)}
   .tag{color:var(--dim);font-size:12px}
   .tag b{color:var(--ink);font-weight:500}
-  .live{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--long);font-size:11.5px;letter-spacing:.1em}
+  .live{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--grn);font-size:11.5px;letter-spacing:.1em;text-shadow:var(--glow)}
   .live .d{width:7px;height:7px;border-radius:50%;background:var(--long);box-shadow:0 0 8px var(--long);animation:p 2s infinite}
   .live.stale{color:var(--dim)} .live.stale .d{background:var(--dim);box-shadow:none;animation:none}
   @keyframes p{0%,100%{opacity:1}50%{opacity:.35}}
@@ -29,17 +53,34 @@
   .stage{position:relative;border-right:1px solid var(--line);min-width:0}
   .side{padding:14px 16px 60px;overflow:auto}
 
-  #cloud{display:block;width:100%;height:56vh;min-height:340px;cursor:grab;background:
-    radial-gradient(ellipse at 50% 45%, #0d1017 0%, #07080a 70%)}
+  #cloud{display:block;width:100%;height:56vh;min-height:340px;cursor:crosshair;background:
+    radial-gradient(ellipse at 50% 45%, #071310 0%, #050706 70%)}
   #cloud:active{cursor:grabbing}
   .over{position:absolute;pointer-events:none;font-size:11.5px;color:var(--dim);letter-spacing:.04em}
   .over.tl{top:12px;left:16px} .over.bl{bottom:12px;left:16px} .over.br{bottom:12px;right:16px}
   .over b{color:var(--ink);font-weight:500}
   .over .hot{color:var(--hot)}
 
-  h3{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
-     margin:22px 0 9px;font-weight:600}
+  h3{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--grn);
+     margin:22px 0 9px;font-weight:600;display:flex;align-items:center;gap:8px;white-space:nowrap;
+     text-shadow:var(--glow)}
+  h3::before{content:'¨0¨0';color:var(--line);letter-spacing:-1px}
+  h3::after{content:'';flex:1;border-top:1px solid var(--line)}
   h3:first-child{margin-top:2px}
+
+  /* a terminal prompt, used wherever the page is speaking */
+  .prompt{color:var(--grn);text-shadow:var(--glow)}
+  .prompt::before{content:'flybrain@rh:~$ ';color:var(--faint)}
+  .cursor{display:inline-block;width:7px;height:13px;background:var(--grn);vertical-align:-2px;
+    box-shadow:var(--glow);animation:bl 1.05s steps(2) infinite}
+  @keyframes bl{0%,50%{opacity:1}51%,100%{opacity:0}}
+
+  /* the boot sequence */
+  #boot{position:fixed;inset:0;z-index:80;background:var(--bg);padding:34px 28px;
+    font-size:12.5px;color:var(--grn);text-shadow:var(--glow);overflow:hidden}
+  #boot .l{white-space:pre;opacity:.95}
+  #boot .ok{color:var(--hot)}
+  #boot.done{opacity:0;transition:opacity .5s ease;pointer-events:none}
 
   .verdict{font-size:27px;line-height:1.15;letter-spacing:-.01em;margin:2px 0 4px;font-weight:600}
   .verdict .long{color:var(--long)} .verdict .short,.verdict .escape{color:var(--short)}
@@ -173,6 +214,9 @@
 </style>
 </head>
 <body>
+<div class="crt"></div><div class="flick"></div><div class="vig"></div>
+
+<div id="boot"></div>
 
 <div class="top">
   <div class="brand"><i>FLY</i>BRAIN</div>
@@ -256,7 +300,7 @@
 const $ = (s) => document.querySelector(s);
 const fmt = (n) => n == null ? '—' : Math.round(n).toLocaleString();
 const pct = (x) => (x * 100).toFixed(x >= 0.1 ? 0 : 1) + '%';
-const POPS = { LC4:'#3ea0ff', LPLC2:'#ff3b30', MN9:'#22c55e', MDN:'#f59e0b', DNp09:'#6a7180', DNa02:'#a78bfa' };
+const POPS = { LC4:'#38bdf8', LPLC2:'#ff4d4d', MN9:'#2bff88', MDN:'#ffb000', DNp09:'#4e8266', DNa02:'#c08bff' };
 
 /* ═══ the brain, in three dimensions ═══════════════════════════════════════════════
    139,600 dots, one per reconstructed cell body, at the coordinates it occupied in the
@@ -281,7 +325,7 @@ const GL = (() => {
       float first = act.y*255.0;
       float age = tBin - first;
       v = (first > 200.0 || age < 0.0) ? 0.0 : clamp(1.0 - age/fade, 0.0, 1.0);
-      amt = clamp(act.x*255.0/24.0, 0.0, 1.0);
+      amt = clamp(act.x*255.0/70.0, 0.0, 1.0);   // amber is for the hardest-working few, not most of the optic lobe
       gl_PointSize = (1.0 + v*2.7) / z * 2.2;
     }`;
   const FS = `
@@ -289,8 +333,10 @@ const GL = (() => {
     void main(){
       vec2 d = gl_PointCoord - 0.5;
       if (dot(d,d) > 0.25) discard;
-      vec3 base = vec3(0.13,0.17,0.24);
-      vec3 warm = mix(vec3(0.24,0.63,1.0), vec3(1.0,0.48,0.18), amt);
+      // a phosphor ramp: resting is faint green, firing goes green, and the hardest-working
+      // neurons burn amber — the same two colours the rest of the terminal uses
+      vec3 base = vec3(0.05,0.20,0.13);
+      vec3 warm = mix(vec3(0.17,1.00,0.53), vec3(1.00,0.69,0.00), amt);
       vec3 c = mix(base, warm, v);
       gl_FragColor = vec4(c, 0.11 + v*0.62);
     }`;
@@ -707,6 +753,49 @@ document.querySelectorAll('#tapeMode button').forEach((b) => {
     if (latest) renderFeed(latest);
   });
 });
+
+/* ═══ boot ════════════════════════════════════════════════════════════════════════
+   Every line is a real figure from the graph that is actually loaded. A boot screen that
+   prints numbers the system does not have is set dressing; this one is a status report
+   that happens to look like one.                                                         */
+(function boot() {
+  const el = $('#boot');
+  if (!el) return;
+  const pad = (a, b) => a + ' ' + '.'.repeat(Math.max(2, 34 - a.length)) + ' ' + b;
+  const lines = [
+    'FLYBRAIN  ·  MaleCNS v1.0 connectome runtime',
+    'Janelia FlyEM / Cambridge / Google  ·  CC BY 4.0',
+    '',
+    ['ok', pad('mapping connectome', '165,836 neurons')],
+    ['ok', pad('synaptic graph', '6,242,118 connections')],
+    ['ok', pad('retinotopic columns', '1,771')],
+    ['ok', pad('neuromodulators', 'OA 101 / 5HT 48 / DA 392')],
+    ['ok', pad('flight arena', '72 azimuth bands')],
+    ['ok', pad('market feed', 'api.rh.lighter.xyz')],
+    ['warn', pad('live trading', 'DISARMED')],
+    '',
+    'this is a wiring diagram, not a mind. it has not learned anything.',
+    '',
+  ];
+  let i = 0;
+  const step = () => {
+    if (i >= lines.length) {
+      el.insertAdjacentHTML('beforeend', `<div class="l"><span class="prompt">watch</span><span class="cursor"></span></div>`);
+      setTimeout(() => { el.classList.add('done'); setTimeout(() => el.remove(), 600); }, 420);
+      return;
+    }
+    const v = lines[i++];
+    const html = Array.isArray(v)
+      ? `<div class="l">[ <span class="${v[0] === 'warn' ? 'ok' : ''}">${v[0] === 'warn' ? 'WARN' : ' OK '}</span> ] ${v[1]}</div>`
+      : `<div class="l">${v || '&nbsp;'}</div>`;
+    el.insertAdjacentHTML('beforeend', html);
+    setTimeout(step, Array.isArray(v) ? 70 : 130);
+  };
+  // anyone who has seen it once does not need to see it again this session
+  if (sessionStorage.getItem('booted')) { el.remove(); return; }
+  try { sessionStorage.setItem('booted', '1'); } catch (e) { /* private window */ }
+  step();
+})();
 
 tick();
 setInterval(tick, 4000);
