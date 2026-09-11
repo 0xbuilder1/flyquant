@@ -12,3 +12,7 @@ keeper/config.json
 keeper/state/
 keeper/state-*/
 site/dist/
+# per-pass runtime output. The cloud binaries ARE committed on purpose: the host serves them and
+# cannot run build-graph.py, so they are a build artifact the deploy genuinely needs.
+site/stats.json
+site/activity.bin
