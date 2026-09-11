@@ -63,16 +63,49 @@ function plan({ account, market, decision, chosen, exposure = {} }) {
   else if (decision.action === 'short') target = -decision.size * equity * maxFraction;
   else return { ...base, target: held, order: null, reason: 'the fly is holding' };
 
+  // ── THE AGGREGATE CAP ───────────────────────────────────────────────────────────────────────
+  // maxFraction is PER MARKET. The fly picks a different market most passes and never revisits the
+  // old one, so without this the account ends up holding a quarter of itself in each of a dozen
+  // markets — measured at 1.96x equity over a simulated day, which is leverage nobody asked for and
+  // the exact shape of an unnoticed blow-up. The cap is on the SUM, and the new target is scaled
+  // down to fit rather than refused, because refusing would leave the fly unable to act at all once
+  // it was full.
+  const maxTotal = exposure.maxTotalFraction == null ? 1 : Number(exposure.maxTotalFraction);
+  const otherExposure = (account.positions || [])
+    .filter((p) => p.marketId !== marketId)
+    .reduce((s, p) => s + Math.abs(p.notional), 0);
+  const room = Math.max(0, equity * maxTotal - otherExposure);
+  let capped = false;
+  if (Math.abs(target) > room) { target = Math.sign(target) * room; capped = true; }
+
   const delta = target - held;
   const minQuote = Number(market.minQuote) || 0;
   const minBase = Number(market.minBase) || 0;
   const sizeBase = Math.abs(delta) / mark;
 
-  const out = { ...base, target, delta, sizeBase };
+  const out = { ...base, target, delta, sizeBase, capped, room, otherExposure };
 
   if (delta === 0) return { ...out, order: null, reason: 'already at target' };
   if (Math.abs(delta) < minQuote) {
     return { ...out, order: null, reason: `delta $${Math.abs(delta).toFixed(2)} is under the market minimum $${minQuote}` };
+  }
+
+  // ── THE DEADBAND ────────────────────────────────────────────────────────────────────────────
+  // Conviction swings 44%-100% pass to pass on the same market, and re-targeting every swing turned
+  // over 133x the account in a simulated day — $331/day of slippage on $5,000, which bleeds the
+  // account out regardless of whether the fly is right. The exchange's $10 minimum is a floor for a
+  // $10 account and nothing at all for a real one, so the deadband is a fraction of EQUITY and
+  // scales with it. Closing a position is exempt: getting out is never something to defer.
+  //
+  // ONLY A FULL EXIT IS EXEMPT. The first version exempted any reduction — `|target| < |held|` —
+  // which sounded like prudence and was actually a hole: conviction drifting 1.0 to 0.95 is a
+  // reduction, so every downward wobble traded anyway and half the churn walked straight through
+  // the band. A 2% trim is churn whichever direction it points. Getting out completely is not.
+  const deadband = (exposure.deadbandFraction == null ? 0.02 : Number(exposure.deadbandFraction)) * equity;
+  const closing = target === 0;
+  if (!closing && Math.abs(delta) < deadband) {
+    return { ...out, order: null,
+      reason: `delta $${Math.abs(delta).toFixed(2)} is inside the $${deadband.toFixed(2)} deadband` };
   }
   if (sizeBase < minBase) {
     return { ...out, order: null, reason: `size ${sizeBase.toFixed(4)} is under the market minimum ${minBase}` };
@@ -105,6 +138,31 @@ function plan({ account, market, decision, chosen, exposure = {} }) {
   };
 }
 
+/**
+ * Positions the fly has stopped looking at.
+ *
+ * THE FLY ONLY MANAGES WHAT IT IS FACING. It turns toward one market a pass and sets a target there;
+ * every other position simply stays, forever, with no exit — escape closes the market in front of it
+ * and nothing else. Over a day that silently accumulated eleven open markets in simulation. So a
+ * position nobody has looked at for `staleAfterMs` is closed.
+ *
+ * This is an operator risk rule and it is not dressed up as biology. It exists because the decision
+ * mechanism is single-target and the book is not.
+ */
+function stale({ account, lastSeen = {}, now = Date.now(), staleAfterMs }) {
+  if (!staleAfterMs) return [];
+  return (account.positions || [])
+    .map((p) => ({
+      ...p,
+      neverSeen: !lastSeen[p.symbol],
+      // a position the fly has NEVER faced is maximally stale, which is right, but dating it from
+      // the epoch reports an age in the tens of millions of minutes
+      ageMs: lastSeen[p.symbol] ? now - lastSeen[p.symbol] : Infinity,
+    }))
+    .filter((p) => p.ageMs >= staleAfterMs)
+    .sort((a, z) => z.ageMs - a.ageMs);
+}
+
 /** what the whole book looks like, for the ledger and the page */
 function book(account) {
   const positions = account.positions || [];
@@ -125,4 +183,4 @@ function book(account) {
   };
 }
 
-module.exports = { plan, book, currentNotional };
+module.exports = { plan, book, stale, currentNotional };

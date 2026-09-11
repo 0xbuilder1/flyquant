@@ -9,7 +9,7 @@
 'use strict';
 
 const assert = require('assert');
-const { plan, book } = require('./position.js');
+const { plan, book, stale } = require('./position.js');
 
 let pass = 0;
 const ok = (name, fn) => {
@@ -124,6 +124,71 @@ ok('positions in OTHER markets do not move this target', () => {
   const p = plan({ account: account(1000, [pos(2, 400, 'HYPE')]), market: MARKET, decision: LONG, exposure: EXP });
   assert.strictEqual(p.held, 0, 'held must be this market only');
   assert.strictEqual(p.target, 250);
+});
+
+console.log('\nthe three limits that only matter with real money');
+const SCALE = { maxFraction: 0.25, maxTotalFraction: 1.0, deadbandFraction: 0.02 };
+
+ok('the aggregate cap bounds the SUM, not just each market', () => {
+  // 95% of equity is already committed elsewhere; a fresh 25% target must not take it to 120%
+  const p = plan({ account: account(1000, [pos(2, 950, 'HYPE')]), market: MARKET, decision: LONG, exposure: SCALE });
+  assert.strictEqual(p.target, 50, 'the target must be scaled into the remaining room');
+  assert.strictEqual(p.capped, true);
+});
+ok('a full book scales a new target to zero rather than refusing forever', () => {
+  const p = plan({ account: account(1000, [pos(2, 1000, 'HYPE')]), market: MARKET, decision: LONG, exposure: SCALE });
+  assert.strictEqual(p.target, 0);
+});
+ok('total exposure can never exceed maxTotalFraction x equity, over any number of markets', () => {
+  let held = [];
+  for (let k = 0; k < 20; k++) {
+    const p = plan({ account: account(1000, held), market: { ...MARKET, marketId: k, symbol: 'M' + k },
+                     decision: LONG, exposure: SCALE });
+    if (p.order) held = [...held.filter((x) => x.marketId !== k), pos(k, p.target, 'M' + k)];
+  }
+  const total = held.reduce((s, x) => s + Math.abs(x.notional), 0);
+  assert.ok(total <= 1000 + 1e-6, `${total} exceeded equity across ${held.length} markets`);
+});
+ok('the deadband refuses a small rebalance on a big account', () => {
+  // conviction drifts 1.0 -> 0.95: a $12.50 change on $1,000 — over the $10 exchange minimum, but
+  // well inside the 2% deadband, and this is the churn that ate $331/day in simulation
+  const fine = { ...MARKET, minBase: 0.01, sizeDecimals: 2 };
+  const p = plan({ account: account(1000, [pos(44, 250)]), market: fine,
+                   decision: { action: 'long', size: 0.95, why: '' }, exposure: SCALE });
+  assert.strictEqual(p.order, null);
+  assert.match(p.reason, /deadband/);
+});
+ok('the deadband NEVER blocks getting out', () => {
+  const p = plan({ account: account(1000, [pos(44, 250)]), market: MARKET, decision: ESCAPE, exposure: SCALE });
+  assert.ok(p.order, 'escape must never be deferred by a deadband');
+  assert.strictEqual(p.target, 0);
+});
+ok('the deadband scales with the account rather than being a dollar rule', () => {
+  // THE SAME $25 MOVE, on two very different accounts. On $1,000 the band is $20 and $25 clears it;
+  // on $100,000 the band is $2,000 and the identical order is noise. A fixed dollar threshold could
+  // not tell those apart, which is the whole reason this is a fraction of equity.
+  const fine = { ...MARKET, minBase: 0.01, sizeDecimals: 2 };
+  const small = plan({ account: account(1000, [pos(44, 250)]), market: fine,
+                       decision: { action: 'long', size: 0.9, why: '' }, exposure: SCALE });
+  const big = plan({ account: account(100000, [pos(44, 25000)]), market: fine,
+                     decision: { action: 'long', size: 0.99975, why: '' }, exposure: SCALE });
+  assert.strictEqual(Math.round(small.delta), -25);
+  assert.ok(small.order, '$25 on a $1,000 account is outside its $20 band');
+  assert.strictEqual(Math.round(big.delta), -25);
+  assert.strictEqual(big.order, null, 'the same $25 on $100,000 is inside its $2,000 band');
+});
+ok('a position the fly stopped looking at goes stale', () => {
+  const now = 1000000000;
+  const s = stale({
+    account: account(1000, [pos(44, 250), pos(2, 100, 'HYPE')]),
+    lastSeen: { PONS: now - 1000, HYPE: now - 60 * 60 * 1000 },
+    now, staleAfterMs: 30 * 60 * 1000,
+  });
+  assert.strictEqual(s.length, 1);
+  assert.strictEqual(s[0].symbol, 'HYPE');
+});
+ok('nothing is stale when staleAfterMs is unset', () => {
+  assert.strictEqual(stale({ account: account(1000, [pos(44, 250)]), lastSeen: {} }).length, 0);
 });
 
 console.log('\nthe book');

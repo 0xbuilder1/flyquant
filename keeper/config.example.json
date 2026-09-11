@@ -14,13 +14,18 @@
     "maxNotionalUsd": 25,
     "exposure": {
       "_maxFractionNote": "THE OPERATOR'S RISK BUDGET, and the only number in the whole product that is a policy choice rather than a measurement. The fly returns conviction in [0,1]; this is what total conviction is worth as a fraction of equity. At 0.25 a fully convinced fly holds a quarter of the account in one market and there is no leverage at any setting below 1.0. Raising it above 1.0 is taking leverage on deliberately -- PONS caps near 3x with a 20% maintenance fraction, and a leveraged fly dies to noise. NOTE that trade frequency is bound by capital: Lighter's minimum order is about $10, so at 0.25 an account needs roughly $40 to open at all and a few hundred before incremental adds clear the minimum regularly.",
-      "maxFraction": 0.25
+      "maxFraction": 0.25,
+      "maxTotalFraction": 1.0,
+      "deadbandFraction": 0.02,
+      "staleAfterMinutes": 30,
+      "_scaleNote": "THE THREE LIMITS THAT ONLY MATTER WITH REAL MONEY, each measured rather than guessed. maxFraction is PER MARKET; maxTotalFraction caps the SUM, because the fly picks a different market most passes and never revisits the last one -- without it a simulated day on $5,000 reached 1.96x equity across eleven markets, which is leverage nobody asked for. deadbandFraction stops the reconciler chasing conviction noise: re-targeting every 44%-100% swing turned over 133x the account in that same day, about $331/day of slippage on $5,000. staleAfterMinutes closes a position the fly has not faced in that long, because the fly manages one market a pass and the book is not one market."
     }
   },
   "_passNote": "ms is fly time per pass and costs roughly 25x that in CPU. everySeconds is the gap between passes, which is also the market window the fly sees, because most of what it looks at has no historical endpoint.",
   "pass": {
     "ms": 350,
-    "everySeconds": 45
+    "everySeconds": 180,
+    "_everyNote": "THE BIGGEST COST DIAL, measured rather than guessed. Most orders are NEW markets opened from zero, which no deadband touches -- so the rate the fly switches markets dominates turnover. On a simulated $5,000 day: at 45s it turns over 33x the account (~1.7%/day at 5bp of slippage); at 180s it turns over 7x (~0.35%/day). Slower is cheaper and less responsive; 5bp is an assumption about crossing the spread, not a measurement, and should be re-derived from real fills."
   },
   "_ponsNote": "The token that funds the fly. Fees harvested from the PONS escrow become the collateral it trades. IMMUTABLE ONCE LAUNCHED -- see keeper/README.md. factory and escrow are the PONS V2 constants on Robinhood Chain 4663.",
   "chain": {
@@ -72,7 +77,7 @@
     "launchBlock": 0
   },
   "loop": {
-    "intervalMs": 45000
+    "intervalMs": 180000
   },
   "output": {
     "stats": "site/stats.json"

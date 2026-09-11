@@ -74,6 +74,12 @@ function loadConfig() {
     console.log(`account: ${accountError}`);
   }
 
+  // which markets the fly has actually faced, and when. Kept on disk so a restart does not make
+  // every open position look abandoned and close the whole book at once.
+  const seenFile = path.join(__dirname, 'keeper', 'state', 'last-seen.json');
+  let lastSeen = {};
+  try { lastSeen = JSON.parse(fs.readFileSync(seenFile, 'utf8')); } catch { /* first run */ }
+
   // ── the fly ─────────────────────────────────────────────────────────────────────────────────
   const ctx = { fundingClampSmall: 0.05, tradesMax: Math.max(...markets.map((m) => m.market.trades), 1) };
   const tRun = Date.now();
@@ -95,6 +101,24 @@ function loadConfig() {
   // ── reconcile the account to what the fly decided ───────────────────────────────────────────
   let plan = null, feedEntry = null;
   const tradeCfg = cfg.trade || {};
+  const orderCfg = (marketId) => ({
+    accountIndex,
+    apiKeyIndex: (cfg.lighter && cfg.lighter.apiKeyIndex) || 4,
+    maxNotionalUsd: tradeCfg.maxNotionalUsd || 0,
+    maxSlippage: (cfg.lighter && cfg.lighter.maxSlippage),
+    sizeDecimals: (markets.find((m) => m.marketId === marketId) || {}).market
+      ? markets.find((m) => m.marketId === marketId).market.sizeDecimals : 2,
+    armed: !!tradeCfg.armed,
+    stateRoot: path.join(__dirname, 'keeper', 'state'),
+  });
+
+  if (pass.chosen) {
+    lastSeen[pass.chosen.symbol] = Date.now();
+    try {
+      fs.mkdirSync(path.dirname(seenFile), { recursive: true });
+      fs.writeFileSync(seenFile, JSON.stringify(lastSeen));
+    } catch (e) { console.error('could not record what was faced:', e.message); }
+  }
   if (account && pass.chosen) {
     plan = position.plan({
       account,
@@ -105,27 +129,45 @@ function loadConfig() {
     });
 
     feedEntry = await orders.execute({
-      plan,
-      cfg: {
-        accountIndex,
-        apiKeyIndex: (cfg.lighter && cfg.lighter.apiKeyIndex) || 4,
-        maxNotionalUsd: tradeCfg.maxNotionalUsd || 0,
-        maxSlippage: (cfg.lighter && cfg.lighter.maxSlippage),
-        sizeDecimals: pass.chosen.market ? pass.chosen.market.sizeDecimals : 0,
-        armed: !!tradeCfg.armed,
-        stateRoot: path.join(__dirname, 'keeper', 'state'),
-      },
-      broadcast,
+      plan, cfg: orderCfg(pass.chosen.marketId), broadcast,
       context: { seed, heading: pass.heading },
     });
 
     if (plan.order) {
       console.log(`\nplan: hold $${plan.held.toFixed(2)} → target $${plan.target.toFixed(2)} ` +
-        `= ${plan.order.side} ${plan.order.sizeBase} ${plan.symbol} ($${plan.order.notional.toFixed(2)})`);
+        `= ${plan.order.side} ${plan.order.sizeBase} ${plan.symbol} ($${plan.order.notional.toFixed(2)})` +
+        (plan.capped ? `  [capped into $${plan.room.toFixed(2)} of remaining room]` : ''));
       console.log(`  ${feedEntry.status.toUpperCase()}${feedEntry.note ? ' — ' + feedEntry.note : ''}` +
         `${feedEntry.txHash ? '\n  ' + feedEntry.verify : ''}`);
     } else {
       console.log(`\nplan: no order — ${plan.reason}`);
+
+      // ── what the fly has stopped looking at ─────────────────────────────────────────────────
+      // Only when the fly's own decision produced nothing, so this can never pre-empt it and at
+      // most one order leaves per pass. The fly manages one market a pass; the book is not one
+      // market, and without this a position it turned away from would simply never be closed.
+      const staleMs = Number((tradeCfg.exposure && tradeCfg.exposure.staleAfterMinutes) || 0) * 60000;
+      const forgotten = position.stale({ account, lastSeen, staleAfterMs: staleMs });
+      if (forgotten.length) {
+        const f = forgotten[0];
+        const closePlan = position.plan({
+          account,
+          market: { symbol: f.symbol, marketId: f.marketId, mark: Math.abs(f.notional) / Math.max(f.size, 1e-12),
+                    minQuote: 0, minBase: 0, sizeDecimals: 2 },
+          decision: { action: 'escape', size: 1,
+                      why: f.neverSeen ? 'never faced by the fly' : `not faced for ${Math.round(f.ageMs / 60000)} minutes` },
+          exposure: tradeCfg.exposure,
+        });
+        if (closePlan.order) {
+          feedEntry = await orders.execute({
+            plan: closePlan, cfg: orderCfg(f.marketId), broadcast,
+            context: { seed, reason: 'stale' },
+          });
+          console.log(`stale: closing ${f.symbol}, ` +
+            (f.neverSeen ? 'never faced' : `not faced for ${Math.round(f.ageMs / 60000)}m`) +
+            ` — ${feedEntry.status.toUpperCase()}`);
+        }
+      }
     }
   } else {
     console.log(`\nplan: skipped — ${accountError || 'the fly faced nothing'}`);
@@ -154,6 +196,7 @@ function loadConfig() {
     live: broadcast && !!tradeCfg.armed,
     maxNotionalUsd: tradeCfg.maxNotionalUsd || 0,
     maxFraction: (tradeCfg.exposure && tradeCfg.exposure.maxFraction) != null ? tradeCfg.exposure.maxFraction : 1,
+    limits: tradeCfg.exposure || {},
     plan: plan ? { target: plan.target, held: plan.held, delta: plan.delta, reason: plan.reason } : null,
   };
   stats.feed = orders.recent(path.join(__dirname, 'keeper', 'state'), 30);
