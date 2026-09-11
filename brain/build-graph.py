@@ -72,13 +72,14 @@ def read_universe():
     descending_neuron and the rest — which comes to the ~166k the paper reports."""
     ann = feather.read_table(os.path.join(DATA, 'body-annotations.feather'),
                              columns=['bodyId', 'type', 'class', 'superclass', 'somaSide',
-                                      'assignedOlHex1', 'assignedOlHex2']).to_pydict()
+                                      'assignedOlHex1', 'assignedOlHex2', 'somaLocation']).to_pydict()
     keep = {}
-    for body, ty, cl, sc, side, h1, h2 in zip(ann['bodyId'], ann['type'], ann['class'],
-                                              ann['superclass'], ann['somaSide'],
-                                              ann['assignedOlHex1'], ann['assignedOlHex2']):
+    for body, ty, cl, sc, side, h1, h2, soma in zip(ann['bodyId'], ann['type'], ann['class'],
+                                                    ann['superclass'], ann['somaSide'],
+                                                    ann['assignedOlHex1'], ann['assignedOlHex2'],
+                                                    ann['somaLocation']):
         if sc:                       # no superclass == not a reconstructed neuron
-            keep[int(body)] = (ty, cl, sc, side, h1, h2)
+            keep[int(body)] = (ty, cl, sc, side, h1, h2, soma)
     return keep, len(ann['bodyId'])
 
 
@@ -175,6 +176,12 @@ def main():
     # and it is what lets a market be placed SOMEWHERE in the visual field rather than injected
     # straight into a detector. Keyed "<side>:<hex1>:<hex2>" so a column is addressable by eye.
     columns = {}
+    # WHERE EACH NEURON PHYSICALLY IS. MaleCNS carries a soma location for most reconstructed
+    # neurons, in raw EM voxel coordinates. This is what lets the site draw the ACTUAL brain as a
+    # point cloud rather than a diagram of one: every dot is a cell body at the position it occupied
+    # in the animal.
+    cloud_idx = []
+    cloud_xyz = []
     typed = 0
     hexed = 0
     body_list = bodies.tolist()
@@ -182,8 +189,11 @@ def main():
         rec = ann_of.get(body)
         if rec is None:
             continue
-        ty, cl, sc, side, h1, h2 = rec
+        ty, cl, sc, side, h1, h2, soma = rec
         side_of[i] = 1 if side == 'L' else (2 if side == 'R' else 0)
+        if soma is not None and len(soma) == 3:
+            cloud_idx.append(i)
+            cloud_xyz.append((int(soma[0]), int(soma[1]), int(soma[2])))
         if ty:
             typed += 1
             types.setdefault(ty, []).append(i)
@@ -230,6 +240,18 @@ def main():
     with open(os.path.join(OUT, 'columns.json'), 'w') as f:
         json.dump(columns, f)
 
+    # the point cloud, centred and scaled to int16 so the browser downloads ~1MB instead of ~10
+    xyz = np.array(cloud_xyz, dtype=np.float64)
+    lo, hi = xyz.min(axis=0), xyz.max(axis=0)
+    centre = (lo + hi) / 2.0
+    scale = float(np.max(hi - lo)) / 2.0
+    norm = np.clip((xyz - centre) / scale, -1, 1)
+    with open(os.path.join(OUT, 'cloud-index.bin'), 'wb') as f:
+        f.write(np.array(cloud_idx, dtype=np.int32).tobytes())
+    with open(os.path.join(OUT, 'cloud-xyz.bin'), 'wb') as f:
+        f.write((norm * 32767).astype(np.int16).tobytes())
+    log(f'{len(cloud_idx):,} neurons carry a soma position')
+
     manifest = {
         'dataset': 'MaleCNS v1.0',
         'attribution': ('Janelia FlyEM, Cambridge Drosophila Connectomics Group (MRC LMB), '
@@ -245,6 +267,7 @@ def main():
         'typedNeurons': int(typed),
         'distinctTypes': len(types),
         'retinotopicNeurons': int(hexed),
+        'placedNeurons': len(cloud_idx),
         'columns': len(columns),
         'neurotransmitters': nt_counts,
         'silentPresynaptic': int(unknown),

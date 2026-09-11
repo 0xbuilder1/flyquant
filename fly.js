@@ -12,9 +12,12 @@
 'use strict';
 
 const { Brain } = require('./brain/lif.js');
-const { buildArena, seatMarkets, runPass, N_BANDS } = require('./brain/arena.js');
+const A = require('./brain/arena.js');
+const { buildArena, seatMarkets, runPass, N_BANDS } = A;
 const { decide } = require('./brain/readout.js');
 const lighter = require('./trader/lighter.js');
+const publish = require('./trader/publish.js');
+const path = require('path');
 
 function arg(name, dflt) {
   const i = process.argv.indexOf(`--${name}`);
@@ -68,7 +71,7 @@ function arg(name, dflt) {
   };
 
   const tRun = Date.now();
-  const pass = runPass(brain, arena, seats, markets, { ms, seed, ctx });
+  const pass = runPass(brain, arena, seats, markets, { ms, seed, ctx, raster: { capacity: 400000 } });
   const d = decide(brain, pass.result);
 
   let fired = 0;
@@ -95,5 +98,24 @@ function arg(name, dflt) {
   const size = d.action === 'hold' ? '' : `${(d.size * 100).toFixed(1)}% `;
   console.log(`\n  ${d.action.toUpperCase()} ${size}${pass.chosen ? pass.chosen.symbol : ''}`);
   console.log(`  ${d.why}`);
-  console.log(`\n(dry run — nothing can trade yet. total ${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+  const stats = publish.build({
+    brain, arena, seats, markets, pass, decision: d,
+    meta: {
+      cpuMs: Date.now() - tRun, fired,
+      windowSeconds: prev ? Math.round((snap.at - prev.at) / 1000) : null,
+      nBands: N_BANDS, front: A.FRONT, baseRadius: A.BASE_RADIUS, maxExpansion: A.MAX_EXPANSION,
+    },
+  });
+  const siteDir = path.join(__dirname, 'site');
+  const graphDir = path.join(__dirname, 'brain', 'graph');
+  publish.ensureCloud(graphDir, siteDir);
+  const act = publish.activityOf(brain, pass.result, graphDir);
+  require('fs').writeFileSync(path.join(siteDir, 'activity.bin'), act.buf);
+  stats.pass.placed = act.placed;
+  stats.pass.bins = publish.RASTER_BINS;
+
+  const out = arg('out', path.join(siteDir, 'stats.json'));
+  publish.write(stats, out);
+  console.log(`\npublished ${out}`);
+  console.log(`(dry run — nothing can trade yet. total ${((Date.now() - t0) / 1000).toFixed(1)}s)`);
 })().catch((e) => { console.error('failed:', e.message); process.exitCode = 1; });

@@ -108,7 +108,8 @@ function marketAtFront(markets, seats, heading) {
   return best;
 }
 
-function runPass(brain, arena, seats, markets, { ms = 400, seed = 1, chunkMs = 20, ctx = null } = {}) {
+function runPass(brain, arena, seats, markets,
+                 { ms = 400, seed = 1, chunkMs = 20, ctx = null, raster = null } = {}) {
   const dna02 = brain.ofType('DNa02');
   const left = dna02.filter((i) => brain.side[i] === 1);
   const right = dna02.filter((i) => brain.side[i] === 2);
@@ -168,7 +169,7 @@ function runPass(brain, arena, seats, markets, { ms = 400, seed = 1, chunkMs = 2
     return out;
   };
 
-  const result = brain.run({ stim, ms, seed, chunkMs });
+  const result = brain.run({ stim, ms, seed, chunkMs, raster });
 
   // what the fly ended up facing
   const chosen = marketAtFront(markets, seats, heading);

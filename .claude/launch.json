@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "flybrain-site", "runtimeExecutable": "node", "runtimeArgs": ["site/serve.js"], "port": 4173 }
+  ]
+}

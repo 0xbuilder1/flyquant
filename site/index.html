@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLYBRAIN — a whole fly brain, trading</title>
+<meta name="description" content="165,836 neurons of a real fruit fly, in a flight arena with 57 live perp markets. Every dot is a cell body. Every flash is a spike.">
+<style>
+  :root {
+    --bg:#07080a; --panel:#0c0e12; --line:#1b1f27; --ink:#d7dae0; --dim:#6a7180; --faint:#464d59;
+    --hot:#ff7a2f; --cool:#3ea0ff; --long:#22c55e; --short:#ef4444; --loom:#ff3b30; --steer:#a78bfa;
+    --mono: ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:13px;line-height:1.5}
+  a{color:var(--hot);text-decoration:none}
+  .top{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .brand{font-weight:700;letter-spacing:.22em;font-size:14px}
+  .brand i{color:var(--hot);font-style:normal}
+  .tag{color:var(--dim);font-size:12px}
+  .tag b{color:var(--ink);font-weight:500}
+  .live{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--long);font-size:11.5px;letter-spacing:.1em}
+  .live .d{width:7px;height:7px;border-radius:50%;background:var(--long);box-shadow:0 0 8px var(--long);animation:p 2s infinite}
+  .live.stale{color:var(--dim)} .live.stale .d{background:var(--dim);box-shadow:none;animation:none}
+  @keyframes p{0%,100%{opacity:1}50%{opacity:.35}}
+
+  .layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;min-height:calc(100vh - 44px)}
+  @media(max-width:1000px){.layout{grid-template-columns:1fr}}
+  .stage{position:relative;border-right:1px solid var(--line);min-width:0}
+  .side{padding:14px 16px 60px;overflow:auto}
+
+  #cloud{display:block;width:100%;height:56vh;min-height:340px;cursor:grab;background:
+    radial-gradient(ellipse at 50% 45%, #0d1017 0%, #07080a 70%)}
+  #cloud:active{cursor:grabbing}
+  .over{position:absolute;pointer-events:none;font-size:11.5px;color:var(--dim);letter-spacing:.04em}
+  .over.tl{top:12px;left:16px} .over.bl{bottom:12px;left:16px} .over.br{bottom:12px;right:16px}
+  .over b{color:var(--ink);font-weight:500}
+  .over .hot{color:var(--hot)}
+
+  h3{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+     margin:22px 0 9px;font-weight:600}
+  h3:first-child{margin-top:2px}
+
+  .verdict{font-size:27px;line-height:1.15;letter-spacing:-.01em;margin:2px 0 4px;font-weight:600}
+  .verdict .long{color:var(--long)} .verdict .short,.verdict .escape{color:var(--short)}
+  .verdict .hold{color:var(--dim)} .verdict .sym{color:var(--ink)}
+  .why{color:var(--dim);font-size:11.5px;margin-bottom:2px}
+
+  .row{display:grid;grid-template-columns:88px 1fr 52px;align-items:center;gap:8px;margin:4px 0}
+  .row .n{font-size:11.5px;color:var(--dim)}
+  .row .n b{color:var(--ink);font-weight:500}
+  .trk{height:6px;background:#13161c;border-radius:3px;overflow:hidden}
+  .trk i{display:block;height:100%;background:var(--faint);border-radius:3px;transition:width .45s ease}
+  .row.on .trk i{background:var(--hot)}
+  .row.on .n b{color:var(--hot)}
+  .hz{font-size:11px;color:var(--dim);text-align:right}
+
+  .kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:11.5px}
+  .kv span{color:var(--dim)} .kv b{font-weight:500;text-align:right}
+
+  .num{display:grid;grid-template-columns:1fr 1fr;gap:12px 10px;margin-bottom:4px}
+  .num b{display:block;font-size:19px;font-weight:600;letter-spacing:-.01em}
+  .num span{font-size:10.5px;color:var(--dim);letter-spacing:.03em}
+
+  .tape{font-size:11.5px}
+  .tape div{display:grid;grid-template-columns:42px 60px 1fr auto;gap:8px;padding:3px 0;
+            border-top:1px solid var(--line);color:var(--dim)}
+  .tape div:first-child{border-top:0}
+  .tape .long{color:var(--long)} .tape .short,.tape .escape{color:var(--short)} .tape .hold{color:var(--faint)}
+  .tape .sym{color:var(--ink)}
+
+  details{margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+  summary{cursor:pointer;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+  details p{font-size:11.5px;color:var(--dim);margin:10px 0}
+  details p b{color:var(--ink);font-weight:500}
+  .warn{color:var(--hot)}
+
+  .panels{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);gap:0;border-top:1px solid var(--line)}
+  @media(max-width:760px){.panels{grid-template-columns:1fr}}
+  .panel{padding:14px 16px}
+  .panel+.panel{border-left:1px solid var(--line)}
+  #arena{width:100%;height:auto;display:block;max-height:320px}
+  #raster{display:block;width:100%;height:190px}
+  .cap{font-size:11px;color:var(--dim);margin-top:8px}
+  .cap b{color:var(--ink);font-weight:500}
+  .legend span{margin-right:10px;font-size:11px;color:var(--dim)}
+  .legend i{font-style:normal;font-weight:700}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand"><i>FLY</i>BRAIN</div>
+  <div class="tag"><b>one whole fly brain</b>, trading 57 perp markets on Robinhood Chain ·
+    it turns toward a market and its motor neurons decide</div>
+  <div class="live" id="live"><span class="d"></span><span id="liveText">connecting</span></div>
+</div>
+
+<div class="layout">
+  <div class="stage">
+    <canvas id="cloud"></canvas>
+    <div class="over tl" id="ovTL"></div>
+    <div class="over bl" id="ovBL"></div>
+    <div class="over br">drag to rotate · scroll to zoom</div>
+
+    <div class="panels">
+      <div class="panel">
+        <h3>The arena — 57 markets, one fly</h3>
+        <svg id="arena" viewBox="0 0 420 420"></svg>
+        <p class="cap" id="arenaCap"></p>
+      </div>
+      <div class="panel">
+        <h3>Every spike of the pass</h3>
+        <canvas id="raster"></canvas>
+        <p class="cap legend" id="rasterCap"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="side">
+    <h3>What it decided</h3>
+    <div class="verdict" id="verdict">—</div>
+    <div class="why" id="why"></div>
+    <div class="kv" id="facing" style="margin-top:8px"></div>
+
+    <h3>What it wants to do</h3>
+    <div id="bars"></div>
+
+    <h3>Now</h3>
+    <div class="num" id="now"></div>
+
+    <h3>The tape</h3>
+    <div class="tape" id="tape"></div>
+
+    <details open>
+      <summary>Under the hood</summary>
+      <div id="honest"></div>
+    </details>
+    <div style="margin-top:14px;font-size:10.5px;color:var(--faint)" id="foot"></div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const fmt = (n) => n == null ? '—' : Math.round(n).toLocaleString();
+const pct = (x) => (x * 100).toFixed(x >= 0.1 ? 0 : 1) + '%';
+const POPS = { LC4:'#3ea0ff', LPLC2:'#ff3b30', MN9:'#22c55e', MDN:'#f59e0b', DNp09:'#6a7180', DNa02:'#a78bfa' };
+
+/* ═══ the brain, in three dimensions ═══════════════════════════════════════════════
+   139,600 dots, one per reconstructed cell body, at the coordinates it occupied in the
+   animal. Activity is uploaded per pass and replayed: a neuron lights in the time bin it
+   actually first fired, so you watch the pass spread rather than see a still of it.      */
+const GL = (() => {
+  const cv = $('#cloud');
+  const gl = cv.getContext('webgl', { alpha:false, antialias:false, premultipliedAlpha:false });
+  if (!gl) return null;
+
+  const VS = `
+    attribute vec3 pos; attribute vec2 act;
+    uniform float yaw, pitch, tBin, zoom, aspect, fade;
+    varying float v; varying float amt;
+    void main(){
+      float cy=cos(yaw), sy=sin(yaw);
+      vec3 p = vec3(pos.x*cy + pos.z*sy, pos.y, -pos.x*sy + pos.z*cy);
+      float cp=cos(pitch), sp=sin(pitch);
+      p = vec3(p.x, p.y*cp - p.z*sp, p.y*sp + p.z*cp);
+      float z = p.z*0.55 + 2.1/zoom;
+      gl_Position = vec4(p.x/aspect, p.y, 0.0, z);
+      float first = act.y*255.0;
+      float age = tBin - first;
+      v = (first > 200.0 || age < 0.0) ? 0.0 : clamp(1.0 - age/fade, 0.0, 1.0);
+      amt = clamp(act.x*255.0/24.0, 0.0, 1.0);
+      gl_PointSize = (1.05 + v*3.4) / z * 2.2;
+    }`;
+  const FS = `
+    precision mediump float; varying float v; varying float amt;
+    void main(){
+      vec2 d = gl_PointCoord - 0.5;
+      if (dot(d,d) > 0.25) discard;
+      vec3 base = vec3(0.13,0.17,0.24);
+      vec3 warm = mix(vec3(0.24,0.63,1.0), vec3(1.0,0.48,0.18), amt);
+      vec3 c = mix(base, warm, v);
+      gl_FragColor = vec4(c, 0.16 + v*0.84);
+    }`;
+  const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s)); return s; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog); gl.useProgram(prog);
+
+  const bufPos = gl.createBuffer(), bufAct = gl.createBuffer();
+  const aPos = gl.getAttribLocation(prog, 'pos'), aAct = gl.getAttribLocation(prog, 'act');
+  const U = (n) => gl.getUniformLocation(prog, n);
+  const u = { yaw:U('yaw'), pitch:U('pitch'), tBin:U('tBin'), zoom:U('zoom'), aspect:U('aspect'), fade:U('fade') };
+
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE); gl.disable(gl.DEPTH_TEST);
+
+  let count = 0;
+  return {
+    setPositions(i16) {
+      count = i16.length / 3;
+      gl.bindBuffer(gl.ARRAY_BUFFER, bufPos);
+      gl.bufferData(gl.ARRAY_BUFFER, i16, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(aPos);
+      gl.vertexAttribPointer(aPos, 3, gl.SHORT, true, 0, 0);
+    },
+    setActivity(u8) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, bufAct);
+      gl.bufferData(gl.ARRAY_BUFFER, u8, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(aAct);
+      gl.vertexAttribPointer(aAct, 2, gl.UNSIGNED_BYTE, true, 0, 0);
+    },
+    draw(st) {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = cv.clientWidth, h = cv.clientHeight;
+      if (cv.width !== w * dpr || cv.height !== h * dpr) { cv.width = w * dpr; cv.height = h * dpr; }
+      gl.viewport(0, 0, cv.width, cv.height);
+      gl.clearColor(0.027, 0.031, 0.039, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+      if (!count) return;
+      gl.uniform1f(u.yaw, st.yaw); gl.uniform1f(u.pitch, st.pitch);
+      gl.uniform1f(u.tBin, st.tBin); gl.uniform1f(u.zoom, st.zoom);
+      gl.uniform1f(u.aspect, w / h); gl.uniform1f(u.fade, st.fade);
+      gl.drawArrays(gl.POINTS, 0, count);
+    },
+    get count() { return count; },
+  };
+})();
+
+const view = { yaw: 0.0, pitch: 0.18, zoom: 1.75, tBin: 0, fade: 7, drag: null };
+if (GL) {
+  const cv = $('#cloud');
+  cv.addEventListener('pointerdown', (e) => { view.drag = { x:e.clientX, y:e.clientY, yaw:view.yaw, pitch:view.pitch }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', (e) => {
+    if (!view.drag) return;
+    view.yaw = view.drag.yaw + (e.clientX - view.drag.x) * 0.006;
+    view.pitch = Math.max(-1.4, Math.min(1.4, view.drag.pitch + (e.clientY - view.drag.y) * 0.006));
+  });
+  addEventListener('pointerup', () => { view.drag = null; });
+  cv.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    view.zoom = Math.max(0.45, Math.min(4, view.zoom * (e.deltaY > 0 ? 0.92 : 1.08)));
+  }, { passive: false });
+}
+
+let bins = 30;
+function frame() {
+  if (GL) {
+    if (!view.drag) view.yaw += 0.0016;
+    // replay the pass on a loop, with a beat of darkness so each replay reads as a new pass
+    view.tBin = (view.tBin + 0.11) % (bins + 9);
+    GL.draw(view);
+  }
+  requestAnimationFrame(frame);
+}
+frame();
+
+/* ═══ data ════════════════════════════════════════════════════════════════════════ */
+let last = 0, cloudLoaded = false, latest = null;
+
+async function loadCloud() {
+  if (cloudLoaded || !GL) return;
+  try {
+    const r = await fetch('cloud-xyz.bin');
+    if (!r.ok) throw new Error('no cloud');
+    GL.setPositions(new Int16Array(await r.arrayBuffer()));
+    cloudLoaded = true;
+  } catch (e) { /* the page still works as a dashboard without the cloud */ }
+}
+
+async function tick() {
+  let s;
+  try {
+    const r = await fetch('stats.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    s = await r.json();
+  } catch (e) {
+    $('#live').classList.add('stale');
+    $('#liveText').textContent = 'NO STATS — RUN: node fly.js';
+    return;
+  }
+  await loadCloud();
+  if (s.pass.at !== last) {
+    last = s.pass.at;
+    latest = s;
+    bins = s.pass.bins || 30;
+    render(s);
+    try {
+      const a = await fetch('activity.bin?t=' + s.pass.at, { cache: 'no-store' });
+      if (a.ok && GL) GL.setActivity(new Uint8Array(await a.arrayBuffer()));
+    } catch (e) { /* keep the last pass on screen */ }
+  }
+  age(s);
+}
+
+function age(s) {
+  const secs = Math.round((Date.now() - s.pass.at) / 1000);
+  const el = $('#live');
+  el.classList.toggle('stale', secs > 180);
+  $('#liveText').textContent = secs < 90 ? `LIVE · PASS ${secs}s AGO`
+    : `LAST PASS ${Math.round(secs / 60)}m AGO`;
+}
+
+function render(s) {
+  const p = s.pass, b = s.brain;
+
+  const act = p.action;
+  $('#verdict').innerHTML = `<span class="${act}">${act.toUpperCase()}</span>` +
+    (act === 'hold' ? '' : ` ${(p.size * 100).toFixed(1)}%`) +
+    (p.chosen ? ` <span class="sym">${p.chosen}</span>` : '');
+  $('#why').textContent = p.why;
+
+  const sm = p.smelled || {};
+  $('#facing').innerHTML = [
+    ['facing', p.chosen || '—'],
+    ['turned', (p.heading >= 0 ? '+' : '') + p.heading.toFixed(1) + ' bands'],
+    ...Object.entries(sm).map(([k, v]) => ['smells ' + k, pct(v)]),
+  ].map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
+
+  const order = [['escape','LPLC2','looming'],['feed','MN9','proboscis'],['retreat','MDN','moonwalker'],
+                 ['freeze','DNp09','stopping'],['steer','DNa02','steering']];
+  const max = Math.max(...order.map(([k]) => p.rates[k].hz), 1);
+  $('#bars').innerHTML = order.map(([k, type, what]) => {
+    const r = p.rates[k], w = Math.max(0, Math.min(100, (r.hz / max) * 100));
+    return `<div class="row ${r.hz > 0 ? 'on' : ''}">
+      <div class="n"><b>${type}</b><br>${what}</div>
+      <div class="trk"><i style="width:${w}%"></i></div>
+      <div class="hz">${r.hz.toFixed(0)} Hz</div></div>`;
+  }).join('');
+
+  $('#now').innerHTML = [
+    [fmt(p.fired), 'neurons fired'],
+    [p.ms + ' ms', 'fly time lived'],
+    [fmt(p.optic.LPLC2), 'LPLC2 spikes'],
+    [p.rates.giantFiber.spikes, 'DNp01 spikes'],
+    [(p.cpuMs / 1000).toFixed(1) + 's', 'machine time'],
+    [p.windowSeconds ? p.windowSeconds + 's' : '—', 'market window'],
+  ].map(([v, k]) => `<div><b>${v}</b><span>${k}</span></div>`).join('');
+
+  $('#tape').innerHTML = (s.tape || []).slice(0, 14).map((t) => {
+    const d = new Date(t.at);
+    const hh = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    return `<div><span>${hh}</span><span class="${t.action}">${t.action}${t.action === 'hold' ? '' : ' ' + (t.size * 100).toFixed(1) + '%'}</span>` +
+      `<span class="sym">${t.symbol || '—'}</span><span>MN9 ${t.mn9.toFixed(0)}</span></div>`;
+  }).join('');
+
+  $('#ovTL').innerHTML = `<b>${fmt(b.neurons)}</b> neurons · <b>${fmt(b.edges)}</b> connections · ` +
+    `<b>${fmt(b.synapses)}</b> synapses<br>` +
+    `<span class="hot">every dot is a real cell body · every flash is a real spike</span>`;
+  $('#ovBL').innerHTML = `${b.dataset} · ${fmt(b.placedNeurons)} of them placed where they sat in the animal`;
+
+  $('#honest').innerHTML = `
+    <p><b>This is a wiring diagram, not a mind.</b> It is not conscious, it does not know what money
+    is, and it has not learned anything — a connectome is one frozen snapshot of synaptic weights, so
+    this fly is a reflex machine whose behaviour is a pure function of what is in front of it.</p>
+    <p>Connections below <b>${b.minWeight} synapses</b> are dropped; that is where reconstruction
+    error concentrates. <b>${fmt(b.excitatory)}</b> neurons excitatory, <b>${fmt(b.inhibitory)}</b>
+    inhibitory, from predicted neurotransmitter. <b>${fmt(b.silentPresynaptic)}</b> have no usable
+    prediction and are silent rather than guessed.</p>
+    <p>Escape reads <b>LPLC2</b>, not the giant fiber. DNp01 is the textbook all-or-none escape
+    trigger, but on this input it never leaves noise — it fired <b>${p.rates.giantFiber.spikes}</b>
+    times this pass and is published so you can watch it not matter.</p>
+    <p>Same seed, same market, same spikes, to the bit. This pass was seed <b>${p.seed}</b>.</p>
+    <p class="warn"><b>Nothing here is trading.</b> It reads live markets and decides. No order has
+    ever been placed.</p>`;
+
+  $('#foot').textContent = b.attribution + ' · dynamics after Shiu et al. (2024)';
+
+  drawArena(s); drawRaster(p);
+}
+
+/* ═══ the arena ═══════════════════════════════════════════════════════════════════ */
+function drawArena(s) {
+  const p = s.pass, N = s.arena.bands, FRONT = s.arena.front;
+  const CX = 210, CY = 212, R = 148;
+  const ang = (band) => ((band - FRONT) / N) * Math.PI * 2 - Math.PI / 2;
+  const at = (band, r) => [CX + Math.cos(ang(band)) * r, CY + Math.sin(ang(band)) * r];
+  let g = `<circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="#1b1f27"/>`;
+
+  for (const m of p.markets) {
+    const width = s.arena.baseRadius + m.fall * s.arena.maxExpansion;
+    const looming = m.fall > 0.02, chosen = m.symbol === p.chosen;
+    const a0 = ang(m.seat - width / 2), a1 = ang(m.seat + width / 2);
+    const rIn = R - 26, rOut = rIn + 5 + m.bright * 22;
+    const col = looming ? 'var(--loom)' : (chosen ? 'var(--hot)' : '#2f3846');
+    const pts = [], inner = [];
+    const step = (a1 - a0) / 6 || 1;
+    for (let a = a0; a <= a1 + 1e-6; a += step) pts.push([CX + Math.cos(a) * rOut, CY + Math.sin(a) * rOut]);
+    for (let a = a1; a >= a0 - 1e-6; a -= step) inner.push([CX + Math.cos(a) * rIn, CY + Math.sin(a) * rIn]);
+    g += `<path d="M${pts.concat(inner).map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join('L')}Z"
+           fill="${col}" opacity="${(0.35 + m.bright * 0.65).toFixed(2)}"/>`;
+    if (m.bright > 0.8 || chosen || looming) {
+      const [lx, ly] = at(m.seat, R + 11);
+      const rot = ((m.seat - FRONT) / N) * 360, flip = (rot > 90 || rot < -90) ? 180 : 0;
+      g += `<text x="${lx}" y="${ly}" font-size="8" font-family="var(--mono)"
+             fill="${chosen ? 'var(--hot)' : (looming ? 'var(--loom)' : '#5b6373')}"
+             text-anchor="${flip ? 'end' : 'start'}"
+             transform="rotate(${rot + flip} ${lx} ${ly})">${m.symbol}</text>`;
+    }
+  }
+  const head = ang(FRONT + p.heading);
+  const hx = CX + Math.cos(head) * (R - 40), hy = CY + Math.sin(head) * (R - 40);
+  g += `<line x1="${CX}" y1="${CY}" x2="${hx}" y2="${hy}" stroke="var(--hot)" stroke-width="1.5"/>
+        <circle cx="${hx}" cy="${hy}" r="3" fill="var(--hot)"/>
+        <circle cx="${CX}" cy="${CY}" r="5" fill="#d7dae0"/>
+        <text x="${CX}" y="${CY - 14}" text-anchor="middle" font-size="8"
+          fill="#5b6373" font-family="var(--mono)" letter-spacing="1">AHEAD</text>`;
+  $('#arena').innerHTML = g;
+
+  const loom = p.markets.filter((m) => m.fall > 0.02).map((m) => m.symbol);
+  $('#arenaCap').innerHTML = `Fixed seats by market id. Brightness is rank by 24h volume; a falling ` +
+    `market <b>grows wider across the pass</b> — an object coming at you. ` +
+    (loom.length ? `<span style="color:var(--loom)">Looming: ${loom.join(', ')}</span>` : `Nothing looming.`);
+}
+
+/* ═══ the raster ══════════════════════════════════════════════════════════════════ */
+function drawRaster(p) {
+  const c = $('#raster');
+  if (c.clientWidth < 10) { requestAnimationFrame(() => drawRaster(p)); return; }
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = c.clientWidth, H = 190;
+  c.width = W * dpr; c.height = H * dpr;
+  const x = c.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, W, H);
+
+  const PAD = 8, plotH = H - 46, plotW = W - PAD * 2;
+  for (const [t, i, pop] of p.raster.dots) {
+    const px = PAD + t * plotW, py = 6 + (i / 166000) * plotH;
+    x.fillStyle = pop ? POPS[pop] : 'rgba(120,132,155,0.30)';
+    x.fillRect(px, py, pop ? 2.4 : 1.5, pop ? 2.4 : 1.5);
+  }
+  const maxV = Math.max(1, ...Object.values(p.raster.traces).flat());
+  const baseY = H - 14;
+  for (const [name, col] of Object.entries(POPS)) {
+    const v = p.raster.traces[name] || [];
+    x.strokeStyle = col; x.lineWidth = 1.3; x.beginPath();
+    v.forEach((n, k) => {
+      const px = PAD + (k / (v.length - 1)) * plotW, py = baseY - (n / maxV) * 34;
+      k ? x.lineTo(px, py) : x.moveTo(px, py);
+    });
+    x.stroke();
+  }
+  x.fillStyle = '#464d59'; x.font = '9px ui-monospace,monospace';
+  x.fillText('0', PAD, H - 2); x.fillText(p.ms + 'ms', W - 32, H - 2);
+  x.fillText('neuron index →', PAD, 10);
+
+  $('#rasterCap').innerHTML = Object.entries(POPS)
+    .map(([k, v]) => `<span><i style="color:${v}">■</i> ${k}</span>`).join('') +
+    `<span>${p.raster.dots.length.toLocaleString()} spikes drawn</span>`;
+}
+
+let rt;
+addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (latest) { drawArena(latest); drawRaster(latest.pass); } }, 120); });
+
+tick();
+setInterval(tick, 4000);
+</script>
+</body>
+</html>
