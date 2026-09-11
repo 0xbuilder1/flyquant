@@ -58,9 +58,11 @@
   .kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:11.5px}
   .kv span{color:var(--dim)} .kv b{font-weight:500;text-align:right}
 
-  .num{display:grid;grid-template-columns:1fr 1fr;gap:12px 10px;margin-bottom:4px}
-  .num b{display:block;font-size:19px;font-weight:600;letter-spacing:-.01em}
-  .num span{font-size:10.5px;color:var(--dim);letter-spacing:.03em}
+  /* scoped to the stats block: a bare .num also matches the tape's numeric cells, and turning
+     those into grid containers stacked every number onto its own line */
+  #now{display:grid;grid-template-columns:1fr 1fr;gap:12px 10px;margin-bottom:4px}
+  #now b{display:block;font-size:19px;font-weight:600;letter-spacing:-.01em}
+  #now span{font-size:10.5px;color:var(--dim);letter-spacing:.03em}
 
   .tape{font-size:11.5px}
   .tape div{display:grid;grid-template-columns:42px 60px 1fr auto;gap:8px;padding:3px 0;
@@ -115,6 +117,39 @@
   .ticker span{font-size:10px;color:var(--dim);letter-spacing:.09em;text-transform:uppercase}
   .ticker .hot{color:var(--hot)}
 
+  /* the tape — the thing people come to watch */
+  .tape-wrap{border-top:1px solid var(--line);padding:14px 16px 16px}
+  .tape-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .seg button{background:transparent;border:0;color:var(--dim);font:600 10px/1 var(--mono);
+    letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;cursor:pointer}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:rgba(255,122,47,.14);color:var(--hot)}
+  .tape-sum{margin-left:auto;font-size:11px;color:var(--dim);display:flex;gap:16px;flex-wrap:wrap}
+  .tape-sum b{color:var(--ink);font-weight:500}
+  .tape-sum .up{color:var(--long)} .tape-sum .dn{color:var(--short)}
+  .tape-scroll{overflow-x:auto;max-height:430px;overflow-y:auto;border:1px solid var(--line);border-radius:6px}
+  table.tp{width:max-content;min-width:100%;border-collapse:collapse;font-size:11.5px;white-space:nowrap;table-layout:auto}
+  table.tp td{padding:6px 10px;border-bottom:1px solid var(--line);color:var(--dim)}
+  table.tp tr:last-child td{border-bottom:0}
+  table.tp tr:hover td{background:rgba(255,255,255,.02)}
+  table.tp .t{color:var(--faint);font-size:10.5px}
+  table.tp .sym{color:var(--ink);font-weight:600}
+  table.tp .buy{color:var(--long)} table.tp .sell{color:var(--short)}
+  table.tp .num{text-align:right;font-variant-numeric:tabular-nums}
+  table.tp .pnl.up{color:var(--long)} table.tp .pnl.dn{color:var(--short)}
+  .tag{font-size:9px;letter-spacing:.09em;text-transform:uppercase;padding:1px 5px;border-radius:3px}
+  .tag.filled{background:rgba(34,197,94,.15);color:var(--long)}
+  .tag.unfilled{background:rgba(106,113,128,.16);color:var(--dim)}
+  .tag.sent{background:rgba(34,197,94,.15);color:var(--long)}
+  .tag.dry{background:rgba(106,113,128,.16);color:var(--dim)}
+  .tag.refused{background:rgba(239,68,68,.15);color:var(--short)}
+  .tag.none{border:1px solid var(--line);color:var(--faint)}
+  .tag.bt{background:rgba(167,139,250,.14);color:var(--steer)}
+  .tag.post{border:1px solid var(--line);color:var(--dim)}
+  .tag.cross{background:rgba(255,122,47,.12);color:var(--hot)}
+  table.tp a{border-bottom:1px dotted var(--hot);font-size:10.5px}
+
   /* how it works */
   .how{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--line)}
   @media(max-width:860px){.how{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -155,6 +190,20 @@
 
     <div class="ticker" id="ticker"></div>
 
+    <section class="tape-wrap">
+      <div class="tape-head">
+        <h3 style="margin:0">The tape</h3>
+        <div class="seg" id="tapeMode">
+          <button data-mode="all" class="on">all</button>
+          <button data-mode="live">live</button>
+          <button data-mode="backtest">backtest</button>
+        </div>
+        <div class="tape-sum" id="tapeSum"></div>
+      </div>
+      <div class="tape-scroll"><table class="tp" id="feed"><tbody></tbody></table></div>
+      <p class="cap" id="tapeNote"></p>
+    </section>
+
     <div class="how">
       <div class="step"><b>1</b><span>57 live perp markets on Robinhood Chain are placed around the
         fly at fixed seats — a flight arena, the standard way you ask a tethered fly what it wants.</span></div>
@@ -192,14 +241,8 @@
     <h3>The book <span id="bookVerify"></span></h3>
     <div id="book"></div>
 
-    <h3>Trades it placed</h3>
-    <div class="feed" id="feed"></div>
-
     <h3>Now</h3>
     <div class="num" id="now"></div>
-
-    <h3>The tape</h3>
-    <div class="tape" id="tape"></div>
 
     <details open>
       <summary>Under the hood</summary>
@@ -410,13 +453,6 @@ function render(s) {
     [p.windowSeconds ? p.windowSeconds + 's' : '—', 'market window'],
   ].map(([v, k]) => `<div><b>${v}</b><span>${k}</span></div>`).join('');
 
-  $('#tape').innerHTML = (s.tape || []).slice(0, 14).map((t) => {
-    const d = new Date(t.at);
-    const hh = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-    return `<div><span>${hh}</span><span class="${t.action}">${t.action}${t.action === 'hold' ? '' : ' ' + (t.size * 100).toFixed(1) + '%'}</span>` +
-      `<span class="sym">${t.symbol || '—'}</span><span>MN9 ${t.mn9.toFixed(0)}</span></div>`;
-  }).join('');
-
   $('#ovTL').innerHTML = `<b>${fmt(b.neurons)}</b> neurons · <b>${fmt(b.edges)}</b> connections · ` +
     `<b>${fmt(b.synapses)}</b> synapses<br>` +
     `<span class="hot">every dot is a real cell body · every flash is a real spike</span>`;
@@ -506,31 +542,73 @@ function renderBook(s) {
         </div>`).join(''));
 }
 
-/* ═══ the trade feed ══════════════════════════════════════════════════════════════
-   Every pass writes a line, INCLUDING the passes that placed nothing. A feed that only
-   shows the orders that went through is a highlight reel.                               */
+/* ═══ the tape ════════════════════════════════════════════════════════════════════
+   Live decisions and backtested ones in one place, each labelled for what it is. Every
+   pass writes a line INCLUDING the ones that placed nothing — a feed that shows only the
+   orders that went through is a highlight reel.                                          */
+let backtest = null;
+let tapeMode = 'all';
+
+function tapeRows(s) {
+  const live = (s.feed || []).map((f) => ({ ...f, kind: 'live' }));
+  const bt = backtest ? backtest.feed.map((f) => ({ ...f, kind: 'backtest' })) : [];
+  let rows = tapeMode === 'live' ? live : tapeMode === 'backtest' ? bt : live.concat(bt);
+  return rows.sort((a, z) => z.at - a.at).slice(0, 120);
+}
+
 function renderFeed(s) {
-  const feed = s.feed || [];
-  const armed = s.trade && s.trade.live;
-  if (!feed.length) {
-    $('#feed').innerHTML = `<div class="empty">nothing yet — the fly writes a line here every pass</div>`;
-    return;
+  const rows = tapeRows(s);
+  const tb = $('#feed').querySelector('tbody');
+
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td class="t" style="padding:14px">nothing here yet — the fly writes a line every pass</td></tr>`;
+  } else {
+    tb.innerHTML = rows.map((f) => {
+      const d = new Date(f.at);
+      const when = f.kind === 'backtest'
+        ? d.toISOString().slice(5, 16).replace('T', ' ')
+        : d.toTimeString().slice(0, 8);
+      const status = f.status || 'none';
+      const exec = f.execution === 'post-only' ? '<span class="tag post">resting</span>'
+                 : f.execution === 'market' ? '<span class="tag cross">crossing</span>' : '';
+      const px = f.fillPrice != null ? f.fillPrice : (f.limitPrice != null ? f.limitPrice : f.mark);
+      const pnl = f.realised != null
+        ? `<span class="pnl ${f.realised >= 0 ? 'up' : 'dn'}">${f.realised >= 0 ? '+' : ''}${usd(f.realised)}</span>` : '';
+      return `<tr>
+        <td class="t">${when}${f.kind === 'backtest' ? ' <span class="tag bt">bt</span>' : ''}</td>
+        <td class="${f.side || ''}">${(f.side || f.action || '—').toUpperCase()}</td>
+        <td class="sym">${f.symbol || '—'}</td>
+        <td class="num">${f.sizeBase != null ? Number(f.sizeBase).toLocaleString(undefined, { maximumFractionDigits: 4 }) : ''}</td>
+        <td class="num">${f.notional != null ? usd(f.notional) : ''}</td>
+        <td class="num">${px != null ? Number(px).toPrecision(6) : ''}</td>
+        <td>${exec}</td>
+        <td><span class="tag ${status}">${status}</span></td>
+        <td class="num">${pnl}</td>
+        <td>${f.appetite != null ? 'appetite ' + (f.appetite * 100).toFixed(0) + '%' : (f.note || '')}</td>
+        <td>${f.verify ? `<a href="${f.verify}" target="_blank" rel="noopener">verify ↗</a>` : ''}</td>
+      </tr>`;
+    }).join('');
   }
-  $('#feed').innerHTML = feed.slice(0, 12).map((f) => {
-    const d = new Date(f.at);
-    const hh = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') +
-               ':' + String(d.getSeconds()).padStart(2, '0');
-    const line = f.side
-      ? `<span class="${f.side}">${f.side}</span> <span class="amt">${f.sizeBase} ${f.symbol} · ${usd(f.notional)}</span>`
-      : `<span class="amt">${f.action || '—'} ${f.symbol || ''}</span>`;
-    return `<div class="fe">
-      <div class="l1"><span class="t">${hh}</span>${line}<span class="st ${f.status}">${f.status}</span></div>
-      ${f.note ? `<div class="note">${f.note}</div>` : ''}
-      ${f.verify ? `<a href="${f.verify}" target="_blank" rel="noopener">${f.txHash ? 'verify this fill on Lighter ↗' : 'verify the account on Lighter ↗'}</a>` : ''}
-    </div>`;
-  }).join('') +
-  (armed ? '' : `<div class="empty" style="margin-top:8px">Live trading is disarmed: the fly is planning
-     real orders against a real account and sending none of them.</div>`);
+
+  // the summary strip
+  const bits = [];
+  if (backtest) {
+    const up = backtest.pnl >= 0;
+    bits.push(`<span>backtest <b>${backtest.hours}h</b></span>`);
+    bits.push(`<span><b class="${up ? 'up' : 'dn'}">${up ? '+' : ''}${backtest.pnlPct.toFixed(2)}%</b> on ${usd(backtest.startEquity)}</span>`);
+    bits.push(`<span>fill rate <b>${(backtest.fillRate * 100).toFixed(0)}%</b></span>`);
+    bits.push(`<span>spread paid <b>${usd(backtest.spreadPaid)}</b></span>`);
+  }
+  if (s.trade) bits.push(`<span>live <b>${s.trade.live ? 'ARMED' : 'disarmed'}</b></span>`);
+  $('#tapeSum').innerHTML = bits.join('');
+
+  $('#tapeNote').innerHTML = backtest
+    ? `<b>bt</b> rows are a BACKTEST: the real fly, on ${backtest.source}. Fills are modelled at hourly
+       resolution and ignore queue position, which flatters them — the ${(backtest.fillRate * 100).toFixed(0)}%
+       fill rate would not survive a three-minute live cadence. Under two days of sample.
+       <b>It shows the machine works, not that the strategy does.</b> Live rows link to the transaction
+       that proves them.`
+    : `Every pass writes a line, including the ones that placed nothing.`;
 }
 
 /* ═══ the arena ═══════════════════════════════════════════════════════════════════ */
@@ -615,6 +693,20 @@ function drawRaster(p) {
 
 let rt;
 addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (latest) { drawArena(latest); drawRaster(latest.pass); } }, 120); });
+
+fetch('backtest.json').then((r) => (r.ok ? r.json() : null)).then((b) => {
+  backtest = b;
+  if (latest) renderFeed(latest);
+}).catch(() => {});
+
+document.querySelectorAll('#tapeMode button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#tapeMode button').forEach((x) => x.classList.remove('on'));
+    b.classList.add('on');
+    tapeMode = b.dataset.mode;
+    if (latest) renderFeed(latest);
+  });
+});
 
 tick();
 setInterval(tick, 4000);
