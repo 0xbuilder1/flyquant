@@ -124,6 +124,57 @@ memecoin marks are exactly the marks that cannot be realised. This is the tumble
 amendment applied to a second product: *wrong for a minute on a banner is survivable, wrong on a
 size is somebody's money.*
 
+## Sizing — the fly sets a target, the trader reconciles
+
+*Added 2026-09-11, when the trader stopped being a plan.*
+
+The readout returns a direction and a conviction in [0,1]. That conviction times equity times the
+operator's risk budget is the notional the account SHOULD hold in the market the fly turned toward.
+What it actually holds is read from Lighter. **The difference is the order, and nothing else decides
+a size.**
+
+Three properties fall out of that subtraction and not one of them needed a special case:
+
+- **It adds to positions as capital arrives.** The target is a fraction of equity, so a deposit — or
+  a harvest landing, or an open position gaining — raises it, and the next pass buys the difference.
+  Growth compounds into size without a line of code about deposits.
+- **It trims when capital leaves**, by the same subtraction with the sign reversed.
+- **It flips in one order through zero**, because a signed target minus a signed position is a
+  signed delta.
+
+**CONVICTION IS A NORMALISED DIFFERENCE, AND THE FIRST VERSION WAS AN ARTEFACT.** It divided the
+MN9−MDN gap by `MAX_HZ`, the refractory ceiling of 454 Hz. No neuron in this network goes near that;
+MN9 runs at 12–22. So every position came out at 2–5% of equity — a number that looked like a
+judgement and was actually a denominator. `(winner − loser) / (winner + loser)` spans the range with
+no constant: one channel firing alone is total conviction, two firing equally is none.
+
+**WHAT TOTAL CONVICTION IS WORTH IS THE OPERATOR'S, NOT THE FLY'S.** `trade.exposure.maxFraction` is
+the single number in this product that is a policy rather than a measurement, and it lives in config
+for exactly that reason. At 1.0 there is no leverage at any setting below it. This is the boundary
+the whole design rests on: **a brain parameter may never be tuned for returns, and a position limit
+is nothing but.**
+
+**THE MINIMUM TRADE IS THE EXCHANGE'S, NOT OURS.** Lighter publishes `min_quote_amount` and
+`min_base_amount` per market. A delta below either is refused, never rounded up, and size rounds
+DOWN to the market's precision — rounding up would overshoot the target on every pass and ratchet
+exposure upward. A consequence worth stating rather than hiding: **trade frequency is bound by
+capital.** At a 0.25 budget an account needs roughly $40 to open at all and a few hundred before
+incremental adds clear a $10 minimum regularly. There is no setting that makes a small account trade
+often, and inventing one would mean overriding the exchange's own limits.
+
+**THREE SEATBELTS, INDEPENDENT.** `--broadcast` on the command, `trade.armed` in the config, and a
+maximum notional enforced inside the signing process itself — so a bug in the sizing cannot spend
+more than the operator armed, whatever the keeper believes. The signer is a separate Python process
+because Lighter signs with a compiled library loaded through ctypes and there is no pure-JS path; it
+holds the key, exposes one verb, and is the only thing in the repo that can lose money.
+
+**THE DEPOSIT LEG IS BLOCKED AND THAT IS THE FINISHED STATE, NOT AN UNFINISHED ONE.** Fees reach the
+fee wallet as native ETH; getting them to Lighter means wrapping, swapping to USDG on the 1bp v3
+pool, and depositing as margin. The deposit contract address on 4663 has not been read from an
+official source. A wrong deposit address is a total loss rather than a retry, so `spentRaw()` returns
+`0n` — honestly, because nothing has left — and the sink accumulates and reports until
+`fly.deposit.address` and `fly.deposit.verifiedBy` are both set.
+
 ## The venue
 
 **Lighter, on Robinhood Chain, across its whole universe.** `https://api.rh.lighter.xyz`, 57 perp

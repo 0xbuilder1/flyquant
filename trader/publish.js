@@ -150,7 +150,20 @@ function write(stats, file) {
   fs.mkdirSync(dir, { recursive: true });
 
   let tape = [];
-  try { tape = JSON.parse(fs.readFileSync(file, 'utf8')).tape || []; } catch { /* first run */ }
+  let totals = { passes: 0, flyMs: 0, spikes: 0, cpuMs: 0, since: stats.pass.at };
+  try {
+    const was = JSON.parse(fs.readFileSync(file, 'utf8'));
+    tape = was.tape || [];
+    // Carried forward rather than recomputed: the tape is capped, so a sum over it would quietly
+    // start shrinking once the fly had been running for an hour.
+    if (was.totals) totals = was.totals;
+  } catch { /* first run */ }
+
+  totals.passes += 1;
+  totals.flyMs += stats.pass.ms;
+  totals.cpuMs += stats.pass.cpuMs || 0;
+  totals.spikes += Object.values(stats.pass.rates).reduce((s, r) => s + (r.spikes || 0), 0);
+  stats.totals = totals;
   tape.unshift({
     at: stats.pass.at,
     action: stats.pass.action,
