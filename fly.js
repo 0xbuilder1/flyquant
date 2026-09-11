@@ -80,10 +80,20 @@ function loadConfig() {
   let lastSeen = {};
   try { lastSeen = JSON.parse(fs.readFileSync(seenFile, 'utf8')); } catch { /* first run */ }
 
+  // the fly's heading carries between passes, the way a tethered animal's does. Resetting it every
+  // pass meant it always woke facing the same seat and had one pass to turn off it.
+  const headFile = path.join(__dirname, 'keeper', 'state', 'heading.json');
+  let heading0 = 0;
+  try { heading0 = Number(JSON.parse(fs.readFileSync(headFile, 'utf8')).heading) || 0; } catch { /* first run */ }
+
   // ── the fly ─────────────────────────────────────────────────────────────────────────────────
   const ctx = { fundingClampSmall: 0.05, tradesMax: Math.max(...markets.map((m) => m.market.trades), 1) };
   const tRun = Date.now();
-  const pass = runPass(brain, arena, seats, markets, { ms, seed, ctx, raster: { capacity: 400000 } });
+  const pass = runPass(brain, arena, seats, markets, { ms, seed, ctx, heading0, raster: { capacity: 400000 } });
+  try {
+    fs.mkdirSync(path.dirname(headFile), { recursive: true });
+    fs.writeFileSync(headFile, JSON.stringify({ heading: pass.heading, at: Date.now() }));
+  } catch (e) { console.error('could not record the heading:', e.message); }
   const d = decide(brain, pass.result);
 
   let fired = 0;

@@ -109,20 +109,43 @@ function marketAtFront(markets, seats, heading) {
 }
 
 function runPass(brain, arena, seats, markets,
-                 { ms = 400, seed = 1, chunkMs = 20, ctx = null, raster = null } = {}) {
-  const dna02 = brain.ofType('DNa02');
-  const left = dna02.filter((i) => brain.side[i] === 1);
-  const right = dna02.filter((i) => brain.side[i] === 2);
-  if (!left.length || !right.length) throw new Error('DNa02 does not have a left and a right');
+                 { ms = 400, seed = 1, chunkMs = 20, ctx = null, raster = null, heading0 = 0 } = {}) {
+  // ── THE TURN IS THE WHOLE DESCENDING POPULATION, NOT ONE PAIR ───────────────────────────────
+  //
+  // Steering was read off DNa02: two neurons, a handful of spikes in a pass, and an imbalance that
+  // turned out to be mostly noise. probe-steer.js put a single bright stripe around the arena and
+  // the fly turned toward it 3 times out of 6, away once, and did not move twice — and a brighter
+  // stripe did not turn it any harder. With a signal that weak the "chosen" market was only ever
+  // whichever seat happened to be in front, which is exactly what the backtest showed: XRP, 41
+  // times out of 41.
+  //
+  // The fly does not steer with one cell pair. 1,314 descending neurons carry brain to body, split
+  // 656 left and 648 right, and the ASYMMETRY ACROSS THAT POPULATION is the turn command. Reading
+  // all of it is both more biological and enormously less noisy — the same imbalance measured over
+  // 650 neurons instead of 1.
+  const dn = brain.ofClass('descending_neuron');
+  const left = dn.filter((i) => brain.side[i] === 1);
+  const right = dn.filter((i) => brain.side[i] === 2);
+  if (!left.length || !right.length) throw new Error('the descending population has no left/right split');
 
-  // Full deflection sweeps the whole panorama in one pass, which is what sets the turn gain — not a
-  // constant anybody chose. A neuron cannot fire faster than one spike per refractory period, so
-  // the largest imbalance a chunk can show is known in advance.
-  const maxPerChunk = (chunkMs / P.T_RFC) * Math.max(left.length, right.length);
+  // THE TURN IS THE NORMALISED ASYMMETRY, NOT A FRACTION OF A THEORETICAL MAXIMUM.
+  //
+  // This was (R-L) divided by the most the population could possibly fire — 650 neurons at one spike
+  // per refractory period, about 5,963 a chunk. Nothing ever goes near that, so a real imbalance of
+  // thirty spikes moved the fly a tenth of a band and it never went anywhere. It is exactly the
+  // denominator mistake that made every position 2-5% of equity before conviction was fixed, and it
+  // is fixed the same way: divide by what ACTUALLY FIRED.
+  //
+  //     turn = (R - L) / (R + L)
+  //
+  // Bounded by construction, no constant, and it spans the full range — all the activity on one side
+  // is a hard turn, an even split is straight ahead.
   const chunks = Math.max(1, Math.round(ms / chunkMs));
   const bandsPerChunk = N_BANDS / chunks;
 
-  let heading = 0;                      // in bands, + is a rightward turn
+  // HEADING PERSISTS ACROSS PASSES. A tethered fly's heading integrates; resetting it to zero every
+  // pass meant the fly always woke up facing the same seat and had one pass to turn away from it.
+  let heading = heading0;               // in bands, + is a rightward turn
   let lastL = 0, lastR = 0;
   let lastFront = null, lastSignals = null;
   const trace = [];
@@ -134,7 +157,8 @@ function runPass(brain, arena, seats, markets,
       for (const i of right) r += spikes[i];
       const dl = l - lastL, dr = r - lastR;
       lastL = l; lastR = r;
-      heading += ((dr - dl) / maxPerChunk) * bandsPerChunk;
+      const total = dr + dl;
+      if (total > 0) heading += ((dr - dl) / total) * bandsPerChunk;
       trace.push({ ms: t, heading, dl, dr });
     }
     const frac = ms > 0 ? t / ms : 0;

@@ -122,6 +122,7 @@ function toArena(now, prev) {
   const feed = [];
   const equityCurve = [];
   let filled = 0, posted = 0, crossed = 0, spreadPaid = 0;
+  let heading = 0;               // the fly's heading persists between passes, as a real one would
 
   for (let h = 1; h < hours.length; h++) {
     const [hour, now] = hours[h];
@@ -140,7 +141,8 @@ function toArena(now, prev) {
     equityCurve.push({ hour, equity, cash, unreal, positions: held.size });
 
     const ctx = { fundingClampSmall: 0.05, tradesMax: Math.max(...now.map((m) => m.trades), 1) };
-    const pass = A.runPass(brain, arena, seats, markets, { ms, seed: h, ctx });
+    const pass = A.runPass(brain, arena, seats, markets, { ms, seed: h, ctx, heading0: heading });
+    heading = pass.heading;
     const d = decide(brain, pass.result);
     if (!pass.chosen) continue;
 
