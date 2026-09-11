@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/favicon.png">
+<meta property="og:image" content="/banner.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="/banner.png">
 <title>FLYBRAIN — a whole fly brain, trading</title>
 <meta name="description" content="165,836 neurons of a real fruit fly, in a flight arena with 57 live perp markets. Every dot is a cell body. Every flash is a spike.">
 <style>
@@ -466,9 +470,15 @@ async function loadCloud() {
 async function tick() {
   let s;
   try {
-    const r = await fetch('stats.json?t=' + Date.now(), { cache: 'no-store' });
+    // /api/stats is the deployed path — it proxies whatever the keeper last published. Locally
+    // there is no function, so fall back to the file the keeper wrote next to this page. Either way
+    // the browser fetches same-origin and never has to know where the keeper is.
+    let r = await fetch('/api/stats?t=' + Date.now(), { cache: 'no-store' }).catch(() => null);
+    if (!r || !r.ok) r = await fetch('stats.json?t=' + Date.now(), { cache: 'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     s = await r.json();
+    // the point cloud's per-pass activity travels with the stats when published
+    if (s.activityUrl) activityUrl = s.activityUrl;
   } catch (e) {
     $('#live').classList.add('stale');
     $('#liveText').textContent = 'NO STATS — RUN: node fly.js';
@@ -481,7 +491,7 @@ async function tick() {
     bins = s.pass.bins || 30;
     render(s);
     try {
-      const a = await fetch('activity.bin?t=' + s.pass.at, { cache: 'no-store' });
+      const a = await fetch(activityUrl + (activityUrl.includes('?') ? '&' : '?') + 't=' + s.pass.at, { cache: 'no-store' });
       if (a.ok && GL) GL.setActivity(new Uint8Array(await a.arrayBuffer()));
     } catch (e) { /* keep the last pass on screen */ }
   }
@@ -748,6 +758,7 @@ function drawCurve(curve) {
    orders that went through is a highlight reel.                                          */
 let backtest = null;
 let tapeMode = 'all';
+let activityUrl = 'activity.bin';
 
 function tapeRows(s) {
   const live = (s.feed || []).map((f) => ({ ...f, kind: 'live' }));
