@@ -27,8 +27,15 @@ async function get(pathname) {
 }
 
 /** the URL anybody can open to check a fill, or the account itself */
-const verifyTx = (hash) => `${HOST}/api/v1/tx?by=hash&value=${hash}`;
-const verifyAccount = (index) => `${HOST}/api/v1/account?by=index&value=${index}`;
+// ── WHERE A SCEPTIC IS SENT ──────────────────────────────────────────────────────────────────
+//
+// These links are the page's entire claim to being checkable, so they go to the EXPLORER and not to
+// the JSON API. The API answers with a wall of unformatted JSON, which is technically the same fact
+// and practically a dead end: nobody clicks it, and nobody who does can read a position out of it.
+// The explorer shows the account and the transaction the way the exchange itself shows them.
+const EXPLORER = 'https://robinhoodchain.lighter.xyz/explorer';
+const verifyTx = (hash) => `${EXPLORER}/logs/${hash}`;
+const verifyAccount = (index) => `${EXPLORER}/accounts/${index}`;
 
 /**
  * Account state as the trader needs it.
