@@ -337,6 +337,25 @@ function loadConfig() {
   publish.ensureCloud(graphDir, siteDir);
   const act = publish.activityOf(brain, pass.result, graphDir);
   fs.writeFileSync(path.join(siteDir, 'activity.bin'), act.buf);
+
+  // ── THE LIGHTS, UPLOADED BEFORE THE NUMBERS THAT POINT AT THEM ──────────────────────────────
+  //
+  // activity.bin is two bytes per neuron: how often it spiked and the bin it first spiked in. It is
+  // what makes the animal on the page light up with THIS pass rather than with whatever was
+  // committed to git, and at 273KB it is far too big to commit 480 times a day.
+  //
+  // It goes up FIRST, and its URL is then carried inside stats.json. That ordering is the whole
+  // trick: the page learns where the current activity lives from the same file it already polls, so
+  // nothing has to be configured twice and a half-finished upload can never leave the page pointing
+  // at lights that do not exist yet.
+  let activityUrl = null;
+  try {
+    activityUrl = await require('./core/publish.js')
+      .publishFile('activity.bin', Buffer.from(act.buf), 'application/octet-stream');
+  } catch (e) {
+    console.error('could not publish the activity (the page will use the committed one):', e.message);
+  }
+  if (activityUrl) stats.activityUrl = activityUrl;
   stats.pass.placed = act.placed;
   stats.pass.bins = publish.RASTER_BINS;
 

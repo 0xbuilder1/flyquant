@@ -55,4 +55,28 @@ async function publishStats(stats, log) {
   }
 }
 
-module.exports = { publishStats };
+/**
+ * Put any file where the site can read it, under a stable name.
+ *
+ * publishStats() is for the JSON the page prints numbers from. This is for everything ELSE the page
+ * needs live — the neuron activity in particular, which is binary, 273KB a pass, and is what makes
+ * the fly on the page light up with what actually just fired rather than with whatever was committed
+ * to git.
+ *
+ * Same posture as publishStats: no token, no upload, no complaint, and never able to fail a pass.
+ */
+async function publishFile(pathname, body, contentType) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token || !put) return null;
+  const res = await put(pathname, body, {
+    access: 'public',
+    token,
+    contentType: contentType || 'application/octet-stream',
+    allowOverwrite: true,
+    addRandomSuffix: false,           // stable URL, so the page never has to be told a new one
+    cacheControlMaxAge: 30,
+  });
+  return res.url;
+}
+
+module.exports = { publishStats, publishFile };

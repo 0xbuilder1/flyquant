@@ -994,8 +994,16 @@ async function tick(){
     if (lastAt === 0) seedTerminal(s);
     tracePass(s);
     lastAt = s.pass.at;
+    // WHERE THE LIGHTS LIVE IS SOMETHING THE KEEPER TELLS US.
+    //
+    // stats.activityUrl is written by whichever keeper produced this pass, so the page follows the
+    // live upload without being configured to know about it. With no upload configured the field is
+    // absent and this falls back to the copy committed beside the page — which is honest: the fly
+    // still draws, lit by the last pass anybody committed, and every NUMBER on the page is current
+    // regardless, because those all come from stats.json.
+    const actUrl = s.activityUrl || 'activity.bin';
     try {
-      const r = await fetch('activity.bin?t=' + s.pass.at, { cache:'no-store' });
+      const r = await fetch(actUrl + (actUrl.includes('?') ? '&' : '?') + 't=' + s.pass.at, { cache:'no-store' });
       if (r.ok && GL) GL.setActivity(new Uint8Array(await r.arrayBuffer()));
     } catch (e) { /* the cloud simply stays unlit this pass */ }
   }
