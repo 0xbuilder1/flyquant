@@ -331,7 +331,11 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
  * mechanism is single-target and the book is not.
  */
 function stale({ account, lastSeen = {}, now = Date.now(), staleAfterMs }) {
-  if (!staleAfterMs) return [];
+  // ZERO AND UNSET ARE DIFFERENT INSTRUCTIONS. Unset means the operator has not asked for stale
+  // closing at all; zero means "everything counts as stale, right now", which is what a full book
+  // asks for when the fly wants a slot. `!staleAfterMs` could not tell them apart and swallowed the
+  // zero, so the rotation silently never fired and a full book went on refusing.
+  if (staleAfterMs == null || staleAfterMs < 0) return [];
   return (account.positions || [])
     .map((p) => ({
       ...p,

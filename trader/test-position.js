@@ -366,6 +366,16 @@ ok('a position the fly stopped looking at goes stale', () => {
   assert.strictEqual(s.length, 1);
   assert.strictEqual(s[0].symbol, 'HYPE');
 });
+ok('staleAfterMs 0 means EVERYTHING is stale, which is not the same as unset', () => {
+  // a full book asking for room passes 0. `!staleAfterMs` used to swallow it and return nothing,
+  // so the rotation never fired.
+  const held = [pos(1, 100, 'A'), pos(2, 100, 'B')];
+  const seen = { A: Date.now(), B: Date.now() - 60000 };
+  const all = stale({ account: account(1000, held), lastSeen: seen, staleAfterMs: 0 });
+  assert.strictEqual(all.length, 2, 'both positions should count as stale at a zero threshold');
+  assert.strictEqual(all[0].symbol, 'B', 'the least recently faced comes first');
+});
+
 ok('nothing is stale when staleAfterMs is unset', () => {
   assert.strictEqual(stale({ account: account(1000, [pos(44, 250)]), lastSeen: {} }).length, 0);
 });
