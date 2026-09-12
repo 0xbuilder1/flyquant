@@ -157,6 +157,24 @@ async def place(args, order, key):
         else:
             # Crossing, for an exit. The fly is fleeing and an order that might not fill is not an
             # exit. Bounded by max_slippage so "get out" can never become "get out at any price".
+            # IDEAL_PRICE IS IN TICKS, NOT DOLLARS, AND GETTING THAT WRONG FAILS SILENTLY.
+            #
+            # The SDK does, verbatim:
+            #     acceptable_execution_price = round(ideal_price * (1 + max_slippage * ...))
+            # and hands the result straight to create_order as `price`, which is an integer number
+            # of ticks. Passing a float price means that round() collapses it: a $2.4886 mark became
+            # round(2.4886 * 1.005) = 3, and the exchange was asked to buy at THREE TICKS -- 0.00003
+            # on a market trading at 2.48.
+            #
+            # It is accepted, of course. It is a perfectly valid IOC order at an absurd price, so it
+            # fills nothing and cancels itself, and the keeper records SENT with no error anywhere.
+            # Two live market orders were lost to this before the empty account gave it away.
+            ideal = order.get("idealPrice")
+            ideal_ticks = None
+            if ideal:
+                ideal_ticks = int(round(float(ideal) * (10 ** order["priceDecimals"])))
+                if ideal_ticks <= 0:
+                    fail("the ideal price rounds to zero ticks at this market's precision")
             res = unwrap(await signer.create_market_order_limited_slippage(
                 market_index=order["marketId"],
                 client_order_index=coid,
@@ -164,7 +182,7 @@ async def place(args, order, key):
                 max_slippage=order.get("maxSlippage", 0.005),
                 is_ask=bool(order["isAsk"]),
                 reduce_only=bool(order.get("reduceOnly", False)),
-                ideal_price=order.get("idealPrice"),
+                ideal_price=ideal_ticks,
             ))
     except Exception as e:                                   # noqa: BLE001
         fail(f"order rejected: {e}", clientOrderIndex=coid, execution=execution)
@@ -213,9 +231,11 @@ async def cancel_all(args, key):
     if err:
         fail(f"check_client failed: {err}")
     try:
+        # CANCEL_ALL_TIF_IMMEDIATE CARRIES NO TIME. A scheduled cancel is the one that takes a
+        # timestamp; an immediate one is rejected with `CancelAllTime should be nil` if given one.
         res = await signer.cancel_all_orders(
             time_in_force=lighter.SignerClient.CANCEL_ALL_TIF_IMMEDIATE,
-            timestamp_ms=int(time.time() * 1000),
+            timestamp_ms=0,
             api_key_index=args.api_key_index,
         )
         if isinstance(res, tuple) and res[-1]:
@@ -257,9 +277,12 @@ def main():
     except json.JSONDecodeError as e:
         fail(f"could not parse the order: {e}")
 
-    required = ["marketId", "isAsk", "sizeBase", "sizeDecimals"]
+    # priceDecimals is required for BOTH: a post-only order needs it to scale its limit, and a
+    # market order needs it to scale ideal_price into ticks. Without it the market order silently
+    # becomes an order at a handful of ticks that can never fill.
+    required = ["marketId", "isAsk", "sizeBase", "sizeDecimals", "priceDecimals"]
     if order.get("execution") == "post-only":
-        required += ["limitPrice", "priceDecimals"]
+        required += ["limitPrice"]
     for field in required:
         if field not in order:
             fail(f"the order is missing {field}; nothing here has a default that costs money")
