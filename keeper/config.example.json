@@ -47,8 +47,8 @@
   "_passNote": "ms is fly time per pass and costs roughly 25x that in CPU. everySeconds is the gap between passes, which is also the market window the fly sees, because most of what it looks at has no historical endpoint.",
   "pass": {
     "ms": 350,
-    "everySeconds": 180,
-    "_everyNote": "THE BIGGEST COST DIAL, measured rather than guessed. Most orders are NEW markets opened from zero, which no deadband touches -- so the rate the fly switches markets dominates turnover. On a simulated $5,000 day: at 45s it turns over 33x the account (~1.7%/day at 5bp of slippage); at 180s it turns over 7x (~0.35%/day). Slower is cheaper and less responsive; 5bp is an assumption about crossing the spread, not a measurement, and should be re-derived from real fills."
+    "everySeconds": 60,
+    "_everyNote": "THE BIGGEST COST DIAL, and it does NOT stay honest as the account grows. Most orders are new markets opened from zero, which no deadband touches, so the rate the fly switches markets is what drives turnover. Measured at $10,179 with an average 2.9bp to cross: 180s turns over 7x the account a day for about 0.22%/day of spread, 60s turns over 21x for 0.65%/day, 30s for 1.30%/day. SET TO 60 on 2026-09-12 -- at $10k that is roughly $66/day, which is worth paying for three times the decisions. THE CATCH IS SIZE, and it is measured too: a $50,000 order walks deeper than a $5,000 one and costs 6.9bp against 2.9bp, so the same 60s cadence on a $100k account is about 1.4%/day rather than 0.65%. RAISE THIS AS THE ACCOUNT GROWS. The percentages look scale-free because every limit is a fraction of equity; the cost per unit of notional is not."
   },
   "_ponsNote": "The token that funds the fly. Fees harvested from the PONS escrow become the collateral it trades. IMMUTABLE ONCE LAUNCHED -- see keeper/README.md. factory and escrow are the PONS V2 constants on Robinhood Chain 4663.",
   "chain": {
@@ -103,7 +103,7 @@
     "launchBlock": 0
   },
   "loop": {
-    "intervalMs": 180000
+    "intervalMs": 60000
   },
   "output": {
     "stats": "site/stats.json"
