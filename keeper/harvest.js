@@ -53,6 +53,22 @@ const {
 const { privateKeyToAccount } = require('viem/accounts');
 
 const has = (n) => process.argv.includes(`--${n}`);
+
+/**
+ * The RPC rate limits, and it says so in a way that reads like the chain broke.
+ *
+ * A 429 arrives through viem as "RPC Request failed", with the HTTP status buried in the cause. Leg
+ * B reported `leg B stopped: RPC Request failed` on a run where the wrap, the swap AND the deposit
+ * had all already succeeded and $109 had reached the exchange -- the only thing that failed was a
+ * balance read afterwards. An operator reading that would reasonably run it again, and the second
+ * run would spend the money a second time.
+ *
+ * So every client retries with a widening wait, which turns a rate limit back into what it actually
+ * is: a pause, not a failure.
+ */
+const rpc = (url) => http(url, { retryCount: 6, retryDelay: 1200, timeout: 30000 });
+
+
 const BROADCAST = has('broadcast');
 
 // ── verified on 4663 ────────────────────────────────────────────────────────────────────────
@@ -121,12 +137,12 @@ async function pass() {
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: { default: { http: [cfg.chain.rpc] } },
   });
-  const pc = createPublicClient({ chain, transport: http(cfg.chain.rpc) });
+  const pc = createPublicClient({ chain, transport: rpc(cfg.chain.rpc) });
 
   const key = (process.env.PRIVATE_KEY || '').trim();
   if (!key) { log('no PRIVATE_KEY — read-only. Set it to harvest.'); }
   const account = key ? privateKeyToAccount(key.startsWith('0x') ? key : `0x${key}`) : null;
-  const wc = account ? createWalletClient({ account, chain, transport: http(cfg.chain.rpc) }) : null;
+  const wc = account ? createWalletClient({ account, chain, transport: rpc(cfg.chain.rpc) }) : null;
   const me = account ? account.address : (cfg.feeWallet && cfg.feeWallet.address);
   if (!me || /^0x0+$/.test(me)) { log('no fee wallet — set feeWallet.address or PRIVATE_KEY'); process.exit(1); }
 
@@ -195,23 +211,50 @@ async function pass() {
   const gasReserve = parseEther(String((cfg.distribute && cfg.distribute.gasReserveEth) || 0.02));
   const slippageBps = BigInt((cfg.fly && cfg.fly.deposit && cfg.fly.deposit.slippageBps) || 100);
 
+  // set the moment the deposit goes out, so the catch below can tell "it failed" from "it worked
+  // and then a read failed" -- two situations that look identical from an exception alone
+  let sentDeposit = false;
   const bal = await pc.getBalance({ address: me });
   log(`  native balance ${formatEther(bal)} ETH, gas reserve ${formatEther(gasReserve)} ETH`);
 
+  // ── PICK UP WETH A PREVIOUS PASS STRANDED ───────────────────────────────────────────────────
+  //
+  // This leg is four transactions -- wrap, approve, swap, deposit -- and any of them can be the one
+  // that meets a rate limit. Fail after the wrap and the wallet holds WETH that a check on NATIVE
+  // balance alone will never look at again: the ETH is gone, so there is nothing above the reserve
+  // to wrap, so the leg decides there is nothing to do, forever. The money is not lost, it is
+  // invisible, which is worse because nothing ever reports it.
+  //
+  // So the amount to swap is what is already wrapped PLUS what is about to be, and a pass that finds
+  // stranded WETH picks it up on its own with nobody noticing there was anything to recover.
+  const wethHeld = await pc.readContract({
+    address: ADDR.weth, abi: erc20Abi, functionName: 'balanceOf', args: [me],
+  }).catch(() => 0n);
+  if (wethHeld > 0n) log(`  ${formatEther(wethHeld)} WETH already held — a previous pass stopped mid-leg`);
+
+  const wrapAmt = bal > gasReserve ? bal - gasReserve : 0n;
+  const swapAmt = wethHeld + wrapAmt;
+  // Below this it costs more gas than it moves. A dust sweep is a loss with extra steps.
+  const minSwap = parseEther(String((cfg.fly && cfg.fly.deposit && cfg.fly.deposit.minSwapEth) || 0.001));
+
   if (!has('arm-fund')) {
     log('  disarmed (pass --arm-fund)');
-  } else if (bal <= gasReserve) {
-    log('  nothing above the gas reserve to swap');
+  } else if (swapAmt < minSwap) {
+    log(`  ${formatEther(swapAmt)} ETH+WETH to move, under the ${formatEther(minSwap)} floor — holding`);
   } else {
-    const wrapAmt = bal - gasReserve;
-    log(`  would wrap ${formatEther(wrapAmt)} ETH`);
+    log(`  would wrap ${formatEther(wrapAmt)} ETH, swapping ${formatEther(swapAmt)} total`);
     try {
-      await send(`weth.deposit() with ${formatEther(wrapAmt)} ETH`,
-        { address: ADDR.weth, abi: wethAbi, functionName: 'deposit', args: [], value: wrapAmt });
+      // only wrap if there is enough native to be worth a transaction; the stranded WETH needs none
+      if (wrapAmt >= minSwap) {
+        await send(`weth.deposit() with ${formatEther(wrapAmt)} ETH`,
+          { address: ADDR.weth, abi: wethAbi, functionName: 'deposit', args: [], value: wrapAmt });
+      } else if (wrapAmt > 0n) {
+        log(`  leaving ${formatEther(wrapAmt)} ETH unwrapped — under the floor on its own`);
+      }
 
       const wethBal = BROADCAST
         ? await pc.readContract({ address: ADDR.weth, abi: erc20Abi, functionName: 'balanceOf', args: [me] })
-        : wrapAmt;
+        : swapAmt;
 
       // a floor from the quoter, in the same breath as the swap
       const { result } = await pc.simulateContract({
@@ -223,8 +266,16 @@ async function pass() {
       const minOut = quoted - (quoted * slippageBps) / 10000n;
       log(`  quote ${formatUnits(quoted, 6)} USDG, floor ${formatUnits(minOut, 6)} (${slippageBps}bps)`);
 
-      await send('approve WETH to the router',
-        { address: ADDR.weth, abi: erc20Abi, functionName: 'approve', args: [ADDR.swapRouter02, wethBal] });
+      // an approval that is already in place is a transaction that buys nothing
+      const allowance = await pc.readContract({
+        address: ADDR.weth, abi: erc20Abi, functionName: 'allowance', args: [me, ADDR.swapRouter02],
+      }).catch(() => 0n);
+      if (allowance < wethBal) {
+        await send('approve WETH to the router',
+          { address: ADDR.weth, abi: erc20Abi, functionName: 'approve', args: [ADDR.swapRouter02, wethBal] });
+      } else {
+        log('  router is already approved for this much WETH');
+      }
       await send('exactInputSingle WETH->USDG',
         { address: ADDR.swapRouter02, abi: routerAbi, functionName: 'exactInputSingle',
           args: [{ tokenIn: ADDR.weth, tokenOut: ADDR.usdg, fee: POOL_FEE, recipient: me,
@@ -240,13 +291,23 @@ async function pass() {
       } else {
         await send('approve USDG to the deposit proxy',
           { address: ADDR.usdg, abi: erc20Abi, functionName: 'approve', args: [ADDR.zkLighter, usdg] });
+        sentDeposit = true;
         await send(`deposit(_to=${owner}, asset=${ASSET_USDG}, route=${ROUTE_PERP}, ${formatUnits(usdg, 6)} USDG)`,
           { address: ADDR.zkLighter, abi: zkLighterAbi, functionName: 'deposit',
             args: [owner, ASSET_USDG, ROUTE_PERP, usdg] });
       }
     } catch (e) {
-      log(`  leg B stopped: ${short(e)}`);
-      process.exitCode = 1;
+      // WHAT FAILED MATTERS MORE THAN THAT SOMETHING DID. If the deposit was already sent, the money
+      // is gone whether or not the read after it answered, and reporting a failure invites a second
+      // run that spends it twice. So the message distinguishes the two, loudly.
+      if (sentDeposit) {
+        log(`  leg B: the deposit was ALREADY SENT — ${short(e)} came after it.`);
+        log('  DO NOT RE-RUN to "retry": check the account before doing anything else.');
+        log(`  https://robinhoodchain.lighter.xyz/explorer/accounts/${(cfg.fly && cfg.fly.lighter && cfg.fly.lighter.accountIndex) || ''}`);
+      } else {
+        log(`  leg B stopped before anything was sent: ${short(e)}`);
+        process.exitCode = 1;
+      }
     }
   }
 
@@ -336,7 +397,7 @@ async function assess() {
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: { default: { http: [cfg.chain.rpc] } },
   });
-  const pc = createPublicClient({ chain, transport: http(cfg.chain.rpc) });
+  const pc = createPublicClient({ chain, transport: rpc(cfg.chain.rpc) });
   const key = process.env.PRIVATE_KEY;
   const acct = key ? privateKeyToAccount(key.startsWith('0x') ? key : `0x${key}`) : null;
   const me = acct ? acct.address : (cfg.feeWallet && cfg.feeWallet.address);
@@ -389,7 +450,7 @@ async function loop() {
           nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
           rpcUrls: { default: { http: [cur.chain.rpc] } },
         });
-        const pc2 = createPublicClient({ chain, transport: http(cur.chain.rpc) });
+        const pc2 = createPublicClient({ chain, transport: rpc(cur.chain.rpc) });
         // THE WALLET THAT LAUNCHES AND THE WALLET THAT IS PAID NEED NOT BE THE SAME ONE, and the
         // event is indexed by the LAUNCHER. Scanning by the fee wallet finds nothing when someone
         // else signed the launch -- which is the normal case if the fee wallet is a fresh key that
@@ -427,6 +488,10 @@ async function loop() {
         log(`\nHARVEST — ${a.eth.toFixed(5)} ETH waiting (${hard ? 'over the immediate threshold' : 'on the slow cadence'})`);
         await pass();
         lastRun = Date.now();
+        // A loop that reports only every five minutes looks dead in the seconds after it has just
+        // done the most interesting thing it does. Say what happens next.
+        log(`\nstill watching — next check in ${checkMs / 1000}s, and it harvests again` +
+            ` at ${hardEth} ETH or every ${baseMs / 60000}m above ${softEth} ETH\n`);
       } else if (Date.now() - lastSaid >= 300000) {
         log(`hold — ${a.eth.toFixed(5)} ETH waiting (moves at ${hardEth} now, ${softEth} every ${baseMs / 60000}m)`);
         lastSaid = Date.now();
