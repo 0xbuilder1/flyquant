@@ -23,6 +23,7 @@ const accountApi = require('./trader/account.js');
 const position = require('./trader/position.js');
 const orders = require('./trader/order.js');
 const publish = require('./trader/publish.js');
+const equity = require('./trader/equity.js');
 
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : d; };
 const has = (n) => process.argv.includes(`--${n}`);
@@ -243,6 +244,11 @@ function loadConfig() {
     verify: account.verify,
     error: null,
   } : { error: accountError, index: accountIndex || null, positions: [], verify: accountIndex ? accountApi.verifyAccount(accountIndex) : null };
+
+  // one point per pass, appended. The site's curve is this file and nothing else.
+  const stateRoot = path.join(__dirname, 'keeper', 'state');
+  if (account) equity.record(account, stateRoot);
+  stats.equityCurve = equity.series(stateRoot, 600);
 
   stats.trade = {
     armed: !!tradeCfg.armed,
