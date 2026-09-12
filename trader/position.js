@@ -392,6 +392,13 @@ function book(account) {
       side: p.sign > 0 ? 'long' : 'short',
       size: p.size, entry: p.entry, notional: p.notional,
       unrealized: p.unrealized, liquidation: p.liquidation, funding: p.funding,
+      // what this position actually ties up. initialMarginFraction is a percentage, so a 10% one on
+      // a $4,784 position holds $478. Published because notional as a share of equity sums to the
+      // leverage -- ten positions reading 34% each add to 342% -- which is arithmetically right and
+      // reads as broken. Margin is the number that answers "how much of the account is this".
+      marginUsd: p.initialMarginFraction > 0
+        ? Math.abs(p.notional) * (p.initialMarginFraction / 100)
+        : null,
     })),
   };
 }

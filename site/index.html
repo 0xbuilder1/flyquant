@@ -306,7 +306,7 @@ footer{border-top:1px solid var(--line);margin-top:clamp(44px,6vw,86px);padding:
   <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>what it is holding</span><em id="bookNote"></em></div>
   <div class="scroll"><table>
     <thead><tr>
-      <th>market</th><th>side</th><th class="r">notional</th><th class="r">of equity</th>
+      <th>market</th><th>side</th><th class="r">notional</th><th class="r">margin used</th>
       <th class="r">size</th><th class="r">entry</th><th class="r">unrealised</th>
       <th class="r">liquidation</th><th class="r">funding paid</th>
     </tr></thead>
@@ -687,6 +687,20 @@ function drawCurve(pts){
 }
 
 /* ═══ TABLES ════════════════════════════════════════════════════════════════════════════════════ */
+/**
+ * Long or short, read from the field the keeper actually publishes.
+ *
+ * This read p.sign, which the publisher does not emit. It emits `side`. undefined > 0 is false, so
+ * EVERY position rendered SHORT while the account was entirely long. Every number beside them was
+ * correct, which is why it survived: nothing looked broken, the page just said the opposite of the
+ * truth. Falls back to sign, then to the sign of the notional, neither of which can be absent.
+ */
+function isLong(p){
+  if (p.side) return String(p.side).toLowerCase() === 'long';
+  if (p.sign != null) return Number(p.sign) > 0;
+  return Number(p.notional) >= 0;
+}
+
 function renderPositions(s){
   const a = s.account || {}, L = s.trade.limits || {};
   const ps = (a.positions || []).slice().sort((x, z) => Math.abs(z.notional) - Math.abs(x.notional));
@@ -699,9 +713,11 @@ function renderPositions(s){
   $('#bookNote').textContent = `${ps.length} of ${L.slots || 1} slots · ${usd(a.exposure)} notional on ${usd(a.equity)}`;
   tb.innerHTML = ps.map((p) => `<tr>
       <td class="k"><span class="sym">${p.symbol}</span></td>
-      <td class="${p.sign > 0 ? 'up' : 'down'}">${p.sign > 0 ? 'LONG' : 'SHORT'}</td>
+      <td class="${isLong(p) ? 'up' : 'down'}">${isLong(p) ? 'LONG' : 'SHORT'}</td>
       <td class="r k">${usd(Math.abs(p.notional))}</td>
-      <td class="r">${a.equity ? pct(Math.abs(p.notional)/a.equity, 0) : ''}</td>
+      <td class="r">${p.marginUsd != null
+        ? usd(p.marginUsd) + (a.equity ? ` <span style="color:var(--faint)">${pct(p.marginUsd/a.equity,0)}</span>` : '')
+        : (a.equity ? pct(Math.abs(p.notional)/a.equity, 0) : '')}</td>
       <td class="r">${Number(p.size).toLocaleString('en-US',{maximumFractionDigits:4})}</td>
       <td class="r">${Number(p.entry).toPrecision(6)}</td>
       <td class="r ${sgn(p.unrealized)}">${usd(p.unrealized)}</td>
