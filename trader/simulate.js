@@ -183,6 +183,13 @@ async function main() {
       return { equity, n: acct.positions.length, exposure: acct.exposure, margin: marginOf(acct) };
     });
 
+
+    console.log('    equity        positions      notional      × equity     margin used');
+    for (const r of rows) {
+      console.log(`    ${usd(r.equity).padStart(11)}  ${String(r.n).padStart(11)}  ` +
+        `${usd(r.exposure).padStart(13)}  ${(r.exposure / r.equity).toFixed(2).padStart(10)}×  ` +
+        `${((r.margin / r.equity) * 100).toFixed(0).padStart(12)}%`);
+    }
     // PUBLISHED, because the site may only show numbers the keeper produced. The page cannot compute
     // this for itself — a page that can compute its own figures will eventually compute a flattering
     // one — so it reads this file or shows nothing at all.
@@ -205,12 +212,6 @@ async function main() {
         JSON.stringify(out, null, 1));
       console.log('\n  written to site/scaling.json');
     } catch (e) { console.error('  could not publish the scaling table:', e.message); }
-    console.log('    equity        positions      notional      × equity     margin used');
-    for (const r of rows) {
-      console.log(`    ${usd(r.equity).padStart(11)}  ${String(r.n).padStart(11)}  ` +
-        `${usd(r.exposure).padStart(13)}  ${(r.exposure / r.equity).toFixed(2).padStart(10)}×  ` +
-        `${((r.margin / r.equity) * 100).toFixed(0).padStart(12)}%`);
-    }
     void base;
   }
   console.log('');
