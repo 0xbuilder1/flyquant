@@ -106,17 +106,44 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
     depthCapped = true;
   }
 
-  // maker or taker is decided HERE, before the deadband, because it changes whether a deadband is
-  // worth having at all
-  const isExit = target === 0;
-  const maker = !isExit && !!(depth && depth.best);
-
   const delta = target - held;
   const minQuote = Number(market.minQuote) || 0;
   const minBase = Number(market.minBase) || 0;
   const sizeBase = Math.abs(delta) / mark;
 
+  // ── CROSS UNLESS CROSSING IS EXPENSIVE ──────────────────────────────────────────────────────
+  //
+  // Lighter charges zero maker AND zero taker fee, so crossing costs exactly one thing: the spread
+  // it walks through. On a tight, deep market that is a fraction of a basis point, and paying it
+  // buys certainty — the fly's decision actually HAPPENS instead of resting in a queue hoping the
+  // market comes back to it. The first live order proved that cost is real: it rested at the touch,
+  // was accepted, and simply did not fill.
+  //
+  // So the cost is estimated from the book already read this pass, rather than assumed:
+  //
+  //     cost_bps = spread/2  +  (notional / depth) * band_bps
+  //
+  // The first term is the touch. The second is how far into the book the order walks: consuming a
+  // quarter of the depth inside a half-percent band crosses roughly a quarter of that band, so a
+  // large order in a thin market prices itself out of crossing automatically while a small one in a
+  // deep market barely registers. Both terms come from measurements; only the threshold is a choice.
+  //
+  // takerMaxBps is the OPERATOR's line and lives in config beside the other numbers that are policy
+  // rather than measurement. Above it the order rests post-only and accepts that it may not fill.
+  const isExit = target === 0;
+  const canRest = !isExit && !!(depth && depth.best);
+  const bandBps = (depth && depth.band ? depth.band : 0.005) * 10000;
+  const side = delta > 0 ? 'buy' : 'sell';
+  const bookSide = depth ? (side === 'buy' ? depth.ask : depth.bid) : 0;
+  const halfSpreadBps = depth && depth.spreadBps ? depth.spreadBps / 2 : 0;
+  const impactBps = bookSide > 0 ? (Math.abs(delta) / bookSide) * bandBps : 0;
+  const crossCostBps = halfSpreadBps + impactBps;
+  const takerMaxBps = exposure.takerMaxBps == null ? 6 : Number(exposure.takerMaxBps);
+  // an exit always crosses; otherwise cross while it is cheap, rest when it is not
+  const maker = canRest && crossCostBps > takerMaxBps;
+
   const out = { ...base, target, delta, sizeBase, capped, depthCapped, maker, room, otherExposure,
+              crossCostBps: Math.round(crossCostBps * 100) / 100, takerMaxBps,
               depth: depth ? { min: depth.min, bid: depth.bid, ask: depth.ask, spreadBps: depth.spreadBps } : null };
 
   if (delta === 0) return { ...out, order: null, reason: 'already at target' };
@@ -160,23 +187,8 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
     return { ...out, order: null, reason: `size rounds to ${rounded} at this market's precision, under its ${minBase} minimum` };
   }
 
-  // ── MAKER OR TAKER ──────────────────────────────────────────────────────────────────────────
-  //
-  // THE FLY'S LOSSES SHOULD BE DIRECTIONAL, NOT EXECUTION. Lighter charges zero maker and zero
-  // taker fee, so the entire cost of trading is the spread — and the spread is only paid by whoever
-  // crosses it. A post-only order resting at the touch never crosses: it fills at the price we named
-  // or not at all. That makes slippage ZERO BY CONSTRUCTION rather than small by assumption.
-  //
-  // What it costs instead is adverse selection — a resting bid fills exactly when the market is
-  // coming down on it. That is a real cost and it is a DIRECTIONAL one, which is the trade being
-  // made deliberately here.
-  //
-  // AN ESCAPE CROSSES ANYWAY. The fly is fleeing; an exit that might not fill is not an exit, and a
-  // position you cannot leave is the thing every other cap in this file exists to prevent. It pays
-  // half the spread once — 0.25bp on BTC, 6.8bp on PONS — and that is the price of certainty.
-  const side = delta > 0 ? 'buy' : 'sell';
-  // Post at the touch on our own side: a buy joins the bid, a sell joins the ask. Never inside,
-  // because inside the touch is a worse price for us and buys only queue position.
+  // WHEN IT DOES REST, it rests at the touch on its own side: a buy joins the bid, a sell joins the
+  // ask. Never inside the touch — that is a worse price for us and buys nothing but queue position.
   //
   // AND THE FLY CHOOSES HOW HARD TO ASK. A calm (serotonergic) fly rests BEHIND the touch: a better
   // price, and a smaller chance of being filled at all. An aroused one sits right at it and takes

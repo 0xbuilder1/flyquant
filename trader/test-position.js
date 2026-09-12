@@ -127,7 +127,7 @@ ok('positions in OTHER markets do not move this target', () => {
 });
 
 console.log('\nthe three limits that only matter with real money');
-const SCALE = { maxFraction: 0.25, maxTotalFraction: 1.0, deadbandFraction: 0.02 };
+const SCALE = { maxFraction: 0.25, maxTotalFraction: 1.0, deadbandFraction: 0.02, takerMaxBps: 6 };
 
 ok('the aggregate cap bounds the SUM, not just each market', () => {
   // 95% of equity is already committed elsewhere; a fresh 25% target must not take it to 120%
@@ -220,21 +220,24 @@ ok('no depth reading means no depth cap, and the other caps still apply', () => 
 });
 
 console.log('\nmaker or taker — where the losses are allowed to come from');
-const TOUCH = { min: 570008, bid: 570008, ask: 583515, spreadBps: 6.7,
+// TIGHT: cheap to cross, so the keeper crosses. WIDE: expensive, so it rests.
+const TOUCH = { min: 570008, bid: 570008, ask: 583515, spreadBps: 2.0, band: 0.005,
+                best: { bid: 0.6480, ask: 0.6490 } };
+const WIDE  = { min: 570008, bid: 570008, ask: 583515, spreadBps: 40.0, band: 0.005,
                 best: { bid: 0.6480, ask: 0.6490 } };
 
-ok('an opening order rests post-only and never crosses', () => {
-  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: TOUCH });
+ok('an opening order rests post-only when crossing is expensive', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: WIDE });
   assert.strictEqual(p.maker, true);
   assert.strictEqual(p.order.execution, 'post-only');
 });
 ok('a BUY posts at the bid, not the ask — crossing is the thing being avoided', () => {
-  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: TOUCH });
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: WIDE });
   assert.strictEqual(p.order.side, 'buy');
   assert.strictEqual(p.order.limitPrice, 0.648, 'a buy that posts at the ask has paid the spread');
 });
 ok('a SELL posts at the ask', () => {
-  const p = plan({ account: account(100000), market: MARKET, decision: SHORT, exposure: SCALE, depth: TOUCH });
+  const p = plan({ account: account(100000), market: MARKET, decision: SHORT, exposure: SCALE, depth: WIDE });
   assert.strictEqual(p.order.side, 'sell');
   assert.strictEqual(p.order.limitPrice, 0.649);
 });
@@ -255,7 +258,7 @@ ok('THE DEADBAND DOES NOT BLOCK A MAKER ORDER — the fly keeps its full resolut
   // resting order pays no spread and there is nothing to protect it from
   const fine = { ...MARKET, minBase: 0.01, sizeDecimals: 2 };
   const p = plan({ account: account(100000, [pos(44, 25000)]), market: fine,
-                   decision: { action: 'long', size: 0.99, why: '' }, exposure: SCALE, depth: TOUCH });
+                   decision: { action: 'long', size: 0.99, why: '' }, exposure: SCALE, depth: WIDE });
   assert.ok(p.order, 'a maker order must not be deadbanded');
   assert.strictEqual(p.order.execution, 'post-only');
   assert.strictEqual(Math.round(p.delta), -250);
@@ -292,24 +295,50 @@ ok('an unaroused fly takes no position at all', () => {
 });
 ok('patience rests the order BEHIND the touch, for a better price', () => {
   // bid 0.6480 / ask 0.6490, spread 0.0010
-  const impatient = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+  const impatient = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: WIDE,
                            decision: { ...LONG, mood: mood(1) } });
-  const patient = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+  const patient = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: WIDE,
                          decision: { ...LONG, mood: mood(0.5) } });
   assert.strictEqual(impatient.order.limitPrice, 0.648, 'an aroused fly sits at the touch');
   assert.ok(patient.order.limitPrice < 0.648, 'a calm one bids lower and may not get filled');
   assert.strictEqual(patient.order.limitPrice, 0.6475);
 });
 ok('a patient SELL rests above the ask, not below it', () => {
-  const p = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: TOUCH,
+  const p = plan({ account: account(100000), market: MARKET, exposure: SCALE, depth: WIDE,
                    decision: { ...SHORT, mood: mood(0.5) } });
   assert.ok(p.order.limitPrice > 0.649, 'a patient sell must ask MORE, not less');
   assert.strictEqual(p.order.limitPrice, 0.6495);
 });
 ok('no mood at all falls back to the full allowance and the touch', () => {
-  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: TOUCH });
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: WIDE });
   assert.strictEqual(p.target, 25000);
   assert.strictEqual(p.order.limitPrice, 0.648);
+});
+
+ok('a TIGHT book is crossed, not rested in', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: TOUCH });
+  assert.strictEqual(p.maker, false, 'cheap to cross means cross');
+  assert.strictEqual(p.order.execution, 'market');
+  assert.ok(p.crossCostBps <= SCALE.takerMaxBps, `${p.crossCostBps}bp should be under the threshold`);
+});
+ok('a WIDE book is rested in, not crossed', () => {
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: WIDE });
+  assert.strictEqual(p.maker, true);
+  assert.strictEqual(p.order.execution, 'post-only');
+  assert.ok(p.crossCostBps > SCALE.takerMaxBps);
+});
+ok('a big order in a thin book prices ITSELF out of crossing', () => {
+  // same 2bp spread, but the order is a large share of the book, so the impact term dominates
+  const thin = { ...TOUCH, bid: 400, ask: 400, min: 400 };
+  const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: thin });
+  assert.strictEqual(p.maker, true, 'impact should push it over the threshold on its own');
+  assert.ok(p.crossCostBps > SCALE.takerMaxBps);
+});
+ok('AN EXIT CROSSES EVEN WHEN CROSSING IS EXPENSIVE', () => {
+  const p = plan({ account: account(100000, [pos(44, 20000)]), market: MARKET,
+                   decision: ESCAPE, exposure: SCALE, depth: WIDE });
+  assert.strictEqual(p.maker, false, 'an exit that might not fill is not an exit');
+  assert.strictEqual(p.order.execution, 'market');
 });
 
 ok('a position the fly stopped looking at goes stale', () => {

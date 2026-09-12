@@ -105,16 +105,19 @@ async def place(args, order, key):
             price = int(round(order["limitPrice"] * (10 ** order["priceDecimals"])))
             if price <= 0:
                 fail("limit price rounds to zero at this market's precision")
-            # expirySeconds = 0 means "use the SDK's own default", which is -1 / 28 days.
+            # ORDER EXPIRY IS AN ABSOLUTE MILLISECOND TIMESTAMP, NOT A SENTINEL.
             #
-            # The signature covers order_expiry, so client and server MUST agree on it exactly. An
-            # absolute millisecond timestamp is the obvious reading of the field and may well be
-            # right, but it is the one value in the order this repo chose rather than copied from a
-            # working call -- and if the server normalises it at all, the signature stops verifying
-            # and the only symptom is `21120 invalid signature`, which says nothing about which
-            # field is wrong. So the first live order uses the default and nothing is guessed.
-            secs = int(order.get("expirySeconds", 0) or 0)
-            expiry = (int(time.time() * 1000) + secs * 1000) if secs > 0                 else lighter.SignerClient.DEFAULT_28_DAY_ORDER_EXPIRY
+            # This was -1 (the SDK's DEFAULT_28_DAY_ORDER_EXPIRY) and the exchange answered
+            # `21711 invalid expiry`. The evidence is in the exchange's own accepted transactions:
+            # a real IOC order carries OrderExpiry=0 and ExpiredAt=<absolute ms>, so the field holds
+            # a genuine value in milliseconds and -1 is not expanded by the native signer on the way
+            # through -- it arrives as -1 and is rejected.
+            #
+            # An absolute timestamp was what this sent originally. That attempt failed with `invalid
+            # signature`, which was the chain id, and the wrong diagnosis cost a round trip: two
+            # independent faults, and fixing the second one first made the first look innocent.
+            secs = int(order.get("expirySeconds", 0) or 0) or 600
+            expiry = int(time.time() * 1000) + secs * 1000
             res = unwrap(await signer.create_order(
                 market_index=order["marketId"],
                 client_order_index=coid,
