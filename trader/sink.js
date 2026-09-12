@@ -74,14 +74,22 @@ function audit(balanceRaw) {
   const claimed = h.claimedRaw();
   const gas = h.gasRaw();
   const expected = claimed - gas;              // plus operator float, which the core adds back
-  const delta = BigInt(balanceRaw) - expected;
+
+  // SHORTFALL, NOT SURPLUS, AND THE SIGN IS THE WHOLE POINT. The core asks `deltaRaw <= 0` -- it
+  // wants to know there is nothing MISSING. This returned balance - expected, so the normal state of
+  // a working keeper (holding the operator's own gas float, which it must, or it cannot pay for the
+  // next claim) came out positive and failed the check every single time. A preflight that is red
+  // when everything is right teaches an operator to broadcast through red.
+  //
+  // So: positive means fees have leaked, negative means float is present, zero is exact.
+  const shortfall = expected - BigInt(balanceRaw);
   return {
-    ok: delta >= 0n,                            // more than expected is float; less is a leak
-    deltaRaw: delta,
+    ok: shortfall <= 0n,
+    deltaRaw: shortfall,
     claimedRaw: claimed,
     gasRaw: gas,
     expectedRaw: expected,
-    note: delta < 0n
+    note: shortfall > 0n
       ? 'the fee wallet holds LESS than the escrow paid us minus gas — something spent fees'
       : null,
   };
@@ -91,12 +99,18 @@ function audit(balanceRaw) {
 function preflight(t) {
   const cfg = sinkCfg();
   const acct = Number((cfg.lighter && cfg.lighter.accountIndex) || 0);
-  t.add('lighter account', acct > 0 ? String(acct) : 'PLACEHOLDER 0 — set it before the fly can size anything');
-  t.add('leg B  swap ETH->USDG', 'built · keeper/harvest.js --arm-fund');
-  t.add('leg C  deposit to Lighter', depositReady()
-    ? 'verified · ' + (sinkCfg().deposit || {}).address
-    : 'BLOCKED — ' + DEPOSIT_UNVERIFIED);
-  t.add('deposit _to', (sinkCfg().deposit || {}).accountOwner || 'UNSET — fees would credit the fee wallet instead');
+  // add(name, OK, detail) takes THREE arguments. These were called with two, so the DETAIL was read
+  // as the pass/fail flag and every row rendered as a green tick with "undefined" beside it. A
+  // preflight that cannot fail is not a preflight, and in the four checks specific to this product
+  // it could not.
+  const d = sinkCfg().deposit || {};
+  t.add('lighter account', acct > 0, acct > 0 ? String(acct)
+    : 'PLACEHOLDER 0 — set it before the fly can size anything');
+  t.add('leg B  swap ETH->USDG', true, 'built · keeper/harvest.js --arm-fund');
+  t.add('leg C  deposit to Lighter', depositReady(),
+    depositReady() ? 'verified · ' + d.address : 'BLOCKED — ' + DEPOSIT_UNVERIFIED);
+  t.add('deposit _to', !!d.accountOwner && !/^0x0+$/.test(d.accountOwner),
+    d.accountOwner || 'UNSET — fees would credit the fee wallet instead of the exchange');
 }
 
 /**
