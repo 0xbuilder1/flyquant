@@ -341,6 +341,22 @@ function loadConfig() {
   stats.pass.bins = publish.RASTER_BINS;
 
   publish.write(stats, arg('out', path.join(siteDir, 'stats.json')));
+
+  // ── AND UP TO THE SITE, IF THE OPERATOR HAS CONFIGURED IT ───────────────────────────────────
+  //
+  // The keeper runs on a machine; the page runs on Vercel. A file written locally every few minutes
+  // cannot be committed and redeployed each time, so it goes to Blob under a stable pathname and
+  // /api/stats hands the browser whatever is there now.
+  //
+  // ENTIRELY OPTIONAL, AND IT MAY NEVER BREAK A PASS. With no BLOB_READ_WRITE_TOKEN it does nothing
+  // and says nothing; if the upload fails the pass has still done its job, which is to decide and,
+  // where armed, to trade. Publishing is the last thing that happens for exactly that reason.
+  try {
+    const url = await require('./core/publish.js').publishStats(stats, console.log);
+    if (url && arg('verbose', null) !== null) console.log(`stats published to ${url}`);
+  } catch (e) {
+    console.error('could not publish stats (the pass itself was fine):', e.message);
+  }
   console.log(`\npublished · total ${((Date.now() - t0) / 1000).toFixed(1)}s` +
     (stats.trade.live ? '' : '  (nothing was sent)'));
 })().catch((e) => { console.error('failed:', e.message); process.exitCode = 1; });
