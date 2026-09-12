@@ -133,6 +133,78 @@ function loadConfig() {
   //
   // Only when actually live: a dry pass has nothing resting, and a cancel is a signed request that
   // should not be spent proving that.
+  // ── FLATTEN: CLOSE EVERYTHING, NOW ──────────────────────────────────────────────────────────
+  //
+  //     node fly.js --flatten              say what it would close
+  //     node fly.js --flatten --broadcast  close it
+  //
+  // Two jobs, and the second is why it exists at all.
+  //
+  // It is the panic button. Every other way out of a position goes through the animal -- it escapes
+  // on looming, or it re-targets, or staleAfterMinutes eventually closes what it stopped facing --
+  // and all of those take a pass and none of them can be asked for. An operator who wants out does
+  // not want to wait for a fly to agree.
+  //
+  // And it is the only cheap way to TEST the exit path. Exits are always market orders, which is
+  // exactly the class of order that was silently unfillable until the ideal_price fix, so the exit
+  // path has never actually run. Waiting 30 minutes for staleAfterMinutes to prove it is a long time
+  // to not know.
+  //
+  // It drives the SAME escape plan the stale close uses -- position.plan with action 'escape', which
+  // targets zero and is reduce-only. If it works here it works there. Nothing about it is a special
+  // case, which is the point: a panic button with its own code path is a panic button nobody has
+  // tested.
+  if (has('flatten')) {
+    const open = ((account && account.positions) || []).filter((p) => Math.abs(p.notional) > 0);
+    if (!account) { console.log(`cannot flatten: ${accountError}`); return; }
+    if (!open.length) { console.log('nothing open — already flat'); return; }
+    console.log(`\nflatten: ${open.length} position${open.length === 1 ? '' : 's'} to close\n`);
+
+    const tradeCfg2 = cfg.trade || {};
+    const oCfg = (marketId) => {
+      const m = markets.find((x) => x.marketId === marketId);
+      return {
+        accountIndex,
+        apiKeyIndex: (cfg.lighter && cfg.lighter.apiKeyIndex) || 4,
+        maxNotionalUsd: tradeCfg2.maxNotionalUsd || 0,
+        maxNotionalFractionOfEquity: tradeCfg2.maxNotionalFractionOfEquity || 0,
+        maxSlippage: (cfg.lighter && cfg.lighter.maxSlippage),
+        sizeDecimals: m && m.market ? m.market.sizeDecimals : 2,
+        priceDecimals: m && m.market ? m.market.priceDecimals : 6,
+        expirySeconds: Number(tradeCfg2.expirySeconds) || 600,
+        armed: !!tradeCfg2.armed,
+        stateRoot: path.join(__dirname, 'keeper', 'state'),
+      };
+    };
+
+    for (const pos of open) {
+      const m = markets.find((x) => x.marketId === pos.marketId);
+      const mark = m ? m.mark : Math.abs(pos.notional) / Math.max(pos.size, 1e-12);
+      const plan = position.plan({
+        account,
+        market: {
+          symbol: pos.symbol, marketId: pos.marketId, mark,
+          minQuote: 0, minBase: 0,
+          sizeDecimals: m && m.market ? m.market.sizeDecimals : 2,
+          priceDecimals: m && m.market ? m.market.priceDecimals : 6,
+        },
+        decision: { action: 'escape', size: 1, why: 'flattened by the operator' },
+        exposure: tradeCfg2.exposure,
+      });
+      if (!plan.order) { console.log(`  ${pos.symbol}: nothing to send — ${plan.reason}`); continue; }
+      const entry = await orders.execute({
+        plan, cfg: oCfg(pos.marketId), broadcast,
+        context: { seed: 0, reason: 'flatten' },
+      });
+      console.log(`  ${pos.symbol.padEnd(8)} ${plan.order.side} ${plan.order.sizeBase} ` +
+        `($${Math.abs(pos.notional).toFixed(2)} ${pos.sign > 0 ? 'long' : 'short'}) -> ` +
+        `${entry.status.toUpperCase()}${entry.note ? ' — ' + entry.note : ''}`);
+    }
+    console.log(`\n${broadcast ? 'sent. check the explorer:' : 'dry run — add --broadcast to send. account:'}` +
+      ` https://robinhoodchain.lighter.xyz/explorer/accounts/${accountIndex}`);
+    return;
+  }
+
   if (broadcast && (cfg.trade || {}).armed) {
     const c = await orders.cancelAll({
       accountIndex,
