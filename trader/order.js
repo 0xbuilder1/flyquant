@@ -126,7 +126,15 @@ async function execute({ plan, cfg, broadcast, context = {} }) {
     // An unfilled post-only order must be GONE before the next pass computes a fresh target,
     // otherwise two passes' worth of intent rest in the book at once and the account ends up
     // holding double what the fly asked for.
-    expirySeconds: cfg.expirySeconds || 170,
+    //
+    // THIS USED TO BE 170, UNDER THE 180s PASS INTERVAL, SO IT DIED ON ITS OWN. The exchange will
+    // not take it: 170s comes back `21711 invalid expiry` while 600s is accepted, same code path,
+    // same clock. There is no documented floor, so that is an inference from two live orders rather
+    // than a rule — but the short value is refused and the timing trick is therefore not available.
+    //
+    // So the order no longer expires before the next pass; it is CANCELLED at the start of one.
+    // See cancelAll() below, which is what now enforces the sentence above this comment.
+    expirySeconds: cfg.expirySeconds || 600,
     maxSlippage: cfg.maxSlippage == null ? 0.005 : cfg.maxSlippage,
     idealPrice: o.mark,
   }, cfg, true);
@@ -152,4 +160,41 @@ async function execute({ plan, cfg, broadcast, context = {} }) {
 
 const round = (x) => (x == null ? null : Math.round(Number(x) * 1e6) / 1e6);
 
-module.exports = { execute, record, recent, feedPath, callSigner, FEED_KEEP };
+/**
+ * Wipe every resting order before the fly is asked what it wants now.
+ *
+ * The reconciler is state-based: it reads what the account HOLDS and moves toward a target. Resting
+ * orders are not holdings — position.js counts positions and never sees them — so an order left over
+ * from an earlier pass is intent that no cap is aware of. Left alone across a 600s expiry and a 180s
+ * pass, three passes' worth of them could rest at once, in three different markets, and fill into
+ * slots the account had already spent.
+ *
+ * Cancelling first makes each pass start from a clean book, which is the assumption the rest of the
+ * money path is written against.
+ *
+ * It is one signed request per pass, against a 40-per-60-second limit. Failure is reported and not
+ * thrown: a pass that cannot cancel should still be able to read the account and escape a position.
+ */
+function cancelAll(cfg) {
+  return new Promise((resolve) => {
+    const { spawn } = require('child_process');
+    const args = [
+      path.join(__dirname, 'signer.py'),
+      '--account', String(cfg.accountIndex),
+      '--api-key-index', String(cfg.apiKeyIndex == null ? 4 : cfg.apiKeyIndex),
+      '--cancel-all',
+    ];
+    const py = process.env.PYTHON || 'python';
+    const p = spawn(py, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '', err = '';
+    p.stdout.on('data', (d) => { out += d; });
+    p.stderr.on('data', (d) => { err += d; });
+    p.stdin.end('');
+    p.on('close', () => {
+      try { resolve(JSON.parse(out)); }
+      catch (e) { resolve({ ok: false, error: (err || out || 'the signer said nothing').trim().slice(0, 200) }); }
+    });
+  });
+}
+
+module.exports = { execute, record, recent, feedPath, callSigner, cancelAll, FEED_KEEP };

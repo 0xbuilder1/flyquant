@@ -124,6 +124,23 @@ function loadConfig() {
   // So every book is read every pass. It is 57 requests against an endpoint that answers in
   // milliseconds, once every few minutes, and it is the difference between a fly that can disagree
   // with a market and one that cannot.
+  // ── CLEAR THE BOOK BEFORE ASKING THE FLY WHAT IT WANTS ──────────────────────────────────────
+  //
+  // A post-only order cannot be given an expiry short enough to die before the next pass -- the
+  // exchange refuses 170s -- so leftover intent is cleared by cancelling instead. position.js counts
+  // POSITIONS and never sees a resting order, so one left over from an earlier pass is exposure no
+  // cap is aware of.
+  //
+  // Only when actually live: a dry pass has nothing resting, and a cancel is a signed request that
+  // should not be spent proving that.
+  if (broadcast && (cfg.trade || {}).armed) {
+    const c = await orders.cancelAll({
+      accountIndex,
+      apiKeyIndex: (cfg.lighter && cfg.lighter.apiKeyIndex) || 4,
+    });
+    console.log(c.ok ? 'cleared any resting orders' : `could not clear resting orders: ${c.error}`);
+  }
+
   const tBooks = Date.now();
   const depthOf = {};
   const CONCURRENCY = 8;
@@ -185,12 +202,19 @@ function loadConfig() {
     accountIndex,
     apiKeyIndex: (cfg.lighter && cfg.lighter.apiKeyIndex) || 4,
     maxNotionalUsd: tradeCfg.maxNotionalUsd || 0,
+    // WITHOUT THIS THE SIGNER'S BACKSTOP IS DISABLED. It reads the fraction, not the dollar cap,
+    // and a field that is not forwarded here arrives as 0, which means "no ceiling".
+    maxNotionalFractionOfEquity: tradeCfg.maxNotionalFractionOfEquity || 0,
     maxSlippage: (cfg.lighter && cfg.lighter.maxSlippage),
     sizeDecimals: (markets.find((m) => m.marketId === marketId) || {}).market
       ? markets.find((m) => m.marketId === marketId).market.sizeDecimals : 2,
     priceDecimals: (markets.find((m) => m.marketId === marketId) || {}).market
       ? markets.find((m) => m.marketId === marketId).market.priceDecimals : 6,
-    expirySeconds: Math.max(30, ((cfg.pass && cfg.pass.everySeconds) || 180) - 10),
+    // NOT DERIVED FROM THE PASS INTERVAL ANY MORE. This was everySeconds - 10 = 170s, chosen so an
+    // unfilled order died before the next pass; the exchange answers `21711 invalid expiry` to it
+    // and accepts 600s. The dying-on-its-own trick is therefore unavailable, and the cancel sweep
+    // above does that job instead.
+    expirySeconds: Number(tradeCfg.expirySeconds) || 600,
     armed: !!tradeCfg.armed,
     stateRoot: path.join(__dirname, 'keeper', 'state'),
   });

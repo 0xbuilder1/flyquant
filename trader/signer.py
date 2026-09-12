@@ -129,6 +129,18 @@ async def place(args, order, key):
             # An absolute timestamp was what this sent originally. That attempt failed with `invalid
             # signature`, which was the chain id, and the wrong diagnosis cost a round trip: two
             # independent faults, and fixing the second one first made the first look innocent.
+            # THERE IS ALSO A MINIMUM, AND IT IS INFERRED RATHER THAN DOCUMENTED.
+            #
+            # Two live orders, same code path, same clock (checked: 0.5s off the exchange):
+            #     600s expiry -> accepted, resting
+            #     170s expiry -> `21711 invalid expiry`
+            # Nothing in the SDK names a floor, so this is an inference from two data points and not
+            # a rule anybody published. What is certain is that 170 is refused and 600 is not.
+            #
+            # 170 was not arbitrary either: it was chosen to be under the 180s pass interval so an
+            # unfilled order would die before the next pass computed a fresh target. That intent is
+            # now served by cancelling instead -- see the sweep in trader/order.js -- because the
+            # exchange will not accept an expiry short enough to do it by timing out.
             secs = int(order.get("expirySeconds", 0) or 0) or 600
             expiry = int(time.time() * 1000) + secs * 1000
             res = unwrap(await signer.create_order(
@@ -176,6 +188,49 @@ async def place(args, order, key):
     })
 
 
+async def cancel_all(args, key):
+    """
+    Wipe every resting order on the account.
+
+    Called at the top of a pass. A post-only order cannot be given an expiry short enough to die on
+    its own before the next pass, so intent from an earlier pass would otherwise still be sitting in
+    the book while a fresh target is computed -- and position.js counts POSITIONS, not resting
+    orders, so those would not appear in any slot and the account could quietly end up in more
+    markets than it has slots for.
+    """
+    try:
+        import lighter
+    except ImportError:
+        fail("the lighter SDK is not installed (pip install lighter-sdk==1.1.2)")
+
+    signer = lighter.SignerClient(
+        url=HOST,
+        account_index=args.account,
+        api_private_keys={args.api_key_index: key},
+        chain_id=CHAIN_ID,
+    )
+    err = signer.check_client()
+    if err:
+        fail(f"check_client failed: {err}")
+    try:
+        res = await signer.cancel_all_orders(
+            time_in_force=lighter.SignerClient.CANCEL_ALL_TIF_IMMEDIATE,
+            timestamp_ms=int(time.time() * 1000),
+            api_key_index=args.api_key_index,
+        )
+        if isinstance(res, tuple) and res[-1]:
+            raise RuntimeError(str(res[-1]))
+        out({"ok": True, "cancelled": True})
+    except Exception as e:  # noqa: BLE001
+        fail(f"cancel-all rejected: {e}")
+    finally:
+        close = getattr(signer, "close", None)
+        if close:
+            r = close()
+            if hasattr(r, "__await__"):
+                await r
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--account", type=int, required=True, help="Lighter account index")
@@ -185,7 +240,17 @@ def main():
     ap.add_argument("--max-notional-fraction", type=float, default=0.0,
                     help="ceiling as a multiple of the equity this process reads off the exchange")
     ap.add_argument("--broadcast", action="store_true")
+    ap.add_argument("--cancel-all", action="store_true",
+                    help="cancel every resting order and exit; reads no order on stdin")
     args = ap.parse_args()
+
+    # cancel-all carries no order, so it runs before any of the order validation below
+    if args.cancel_all:
+        key = os.environ.get("LIGHTER_API_KEY", "").strip()
+        if not key:
+            fail("--cancel-all needs LIGHTER_API_KEY in the environment")
+        asyncio.run(cancel_all(args, key))
+        return
 
     try:
         order = json.loads(sys.stdin.read() or "{}")
