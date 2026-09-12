@@ -95,7 +95,11 @@ header nav a:hover{color:var(--ink)}
 #orbit .mk.pick q i{background:var(--fly)}
 #orbit .mk.loom s{color:var(--down)}
 
-.ov{position:absolute;pointer-events:none;z-index:6}
+#orbit{z-index:2}
+/* The ring passes behind the corner readouts, so they carry a halo in the ground colour. It is not
+   a panel and not a scrim — the ticker behind stays visible, it simply stops eating the text. */
+.ov{position:absolute;pointer-events:none;z-index:6;
+    text-shadow:0 0 9px var(--bg),0 0 5px var(--bg),0 0 2px var(--bg)}
 .ov.tl{left:clamp(14px,3vw,40px);top:26px}
 .ov.tr{right:clamp(14px,3vw,40px);top:26px;text-align:right}
 .ov.bl{left:clamp(14px,3vw,40px);bottom:26px}
