@@ -144,16 +144,32 @@ header nav a:hover{color:var(--ink)}
 #readout .bar .sp{flex:1;min-width:8px}
 @media(max-width:900px){#termWhat{display:none}}
 #term{
-  height:clamp(220px,31vh,340px);overflow-y:auto;overflow-x:hidden;
-  font:400 11px/1.62 var(--mono);padding:0 0 14px;scrollbar-width:thin;
+  height:clamp(340px,48vh,620px);overflow-y:auto;overflow-x:hidden;
+  font:400 12.5px/1.7 var(--mono);padding:0 0 18px;scrollbar-width:thin;
   scrollbar-color:var(--line2) transparent;
 }
 #term::-webkit-scrollbar{width:7px}
 #term::-webkit-scrollbar-thumb{background:var(--line2)}
-#term .ln{display:flex;gap:12px;white-space:pre;color:var(--dim)}
+#term .ln{display:flex;gap:14px;white-space:pre;color:var(--dim);align-items:baseline}
 #term .ln:hover{background:#080a0d}
-#term .t{color:#3b4048;flex:none}
-#term .k{flex:none;width:66px;letter-spacing:.08em}
+#term .t{color:#3b4048;flex:none;width:64px;text-align:right;font-variant-numeric:tabular-nums}
+#term .k{flex:none;width:74px;letter-spacing:.08em}
+
+/* ── A TRADE ARRIVES BIG ───────────────────────────────────────────────────────────────────────
+   Everything in this trace is one line of the same weight, which is right for the things the animal
+   senses and wrong for the moment money moves. A decision and an order are the two lines a reader
+   actually came for, so they are set larger, given room, and marked down the left edge — findable
+   by scrolling past at speed rather than by reading every row.                                   */
+#term .ln.big{
+  font-size:19px;line-height:1.45;padding:11px 0 11px 12px;margin:7px 0;
+  border-left:2px solid var(--line2);background:#080a0d;color:var(--ink);
+}
+#term .ln.big .t{font-size:11px;color:var(--faint)}
+#term .ln.big .k{font-size:11px;width:74px;color:var(--faint)}
+#term .ln.big em{font-weight:500}
+#term .ln.big.act{border-left-color:var(--fly)}
+#term .ln.big.filled{border-left-color:var(--up)}
+#term .ln.big.refused{border-left-color:var(--down)}
 #term .v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 #term .sep{height:1px;background:var(--line);margin:7px 0}
 /* the six keys, so a whole pass can be read at a glance */
@@ -789,18 +805,41 @@ function stuck(){
   const el = $('#term');
   return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
 }
-function emit(at, key, html){
+/** how long ago, in the shortest form that is still exact enough to be worth printing */
+function ago(at){
+  const s = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (s < 60) return s + 's ago';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ' + (s % 60) + 's ago';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm ago';
+}
+
+/**
+ * @param {number} at    when it happened
+ * @param {string} key   which kind of line
+ * @param {string} html  the line itself
+ * @param {string} [big] '', or a class marking this as one of the lines worth stopping on
+ */
+function emit(at, key, html, big){
   const el = $('#term');
-  const d = new Date(at), p = (x) => String(x).padStart(2, '0');
-  const t = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   const row = document.createElement('div');
-  row.className = 'ln';
-  row.innerHTML = `<span class="t">${t}</span><span class="k ${key}">${key}</span><span class="v">${html}</span>`;
+  row.className = 'ln' + (big ? ' big ' + big : '');
+  row.dataset.at = at;                      // kept so the clock below can keep re-reading it
+  row.innerHTML = `<span class="t">${ago(at)}</span><span class="k ${key}">${key}</span>` +
+                  `<span class="v">${html}</span>`;
   el.appendChild(row);
   term.lines++;
   // the page is long-lived; the trace is not allowed to grow without bound
   while (el.children.length > 600) el.removeChild(el.firstChild);
 }
+
+// THE AGES TICK. A trace that says "3s ago" and then goes on saying it is worse than a clock, so
+// every line re-reads its own timestamp once a second and ages in front of the reader.
+setInterval(() => {
+  const rows = document.querySelectorAll('#term .ln');
+  for (const r of rows) if (r.dataset.at) r.firstChild.textContent = ago(Number(r.dataset.at));
+}, 1000);
 function rule(){
   const el = $('#term'), d = document.createElement('div');
   d.className = 'sep'; el.appendChild(d);
@@ -876,7 +915,8 @@ function tracePass(s){
   // ── the decision, and what the money did about it ──────────────────────────────────────────
   const dir = p.action === 'long' ? 'up' : (p.action === 'short' || p.action === 'escape') ? 'down' : '';
   emit(at, 'DECIDE', `<span class="${dir}"><em>${(p.action||'').toUpperCase()}</em></span> ` +
-    `${pct(p.size||0,0)} <em class="fly">${p.chosen||''}</em>   <span style="color:#3b4048">${p.why||''}</span>`);
+    `${pct(p.size||0,0)} <em class="fly">${p.chosen||''}</em>`, 'act');
+  if (p.why) emit(at, '', `<span style="color:#3b4048">${p.why}</span>`);
 
   const t = s.trade || {}, pl = t.plan || {};
   if (pl.reason) {
@@ -890,11 +930,15 @@ function tracePass(s){
   if (last && !term.seen.has(last.at + ':' + last.symbol)) {
     term.seen.add(last.at + ':' + last.symbol);
     const route = last.execution === 'post-only' ? 'resting post-only' : last.execution === 'market' ? 'crossing' : '';
-    emit(last.at, 'ORDER', `<em>${(last.side||last.action||'').toUpperCase()}</em> ` +
+    const good = last.status === 'sent' || last.status === 'filled';
+    const bad = last.status === 'refused' || last.status === 'rejected';
+    emit(last.at, 'ORDER',
+      `<em>${(last.side||last.action||'').toUpperCase()}</em> ` +
       `${last.sizeBase != null ? Number(last.sizeBase).toLocaleString('en-US',{maximumFractionDigits:4}) : ''} ` +
-      `<em>${last.symbol||''}</em> ${last.notional != null ? usd(last.notional) : ''} ${route} · ` +
-      `<span class="${last.status === 'sent' || last.status === 'filled' ? 'up' : last.status === 'refused' || last.status === 'rejected' ? 'down' : ''}">` +
-      `${(last.status||'').toUpperCase()}</span>${last.note ? ' — ' + last.note : ''}`);
+      `<em>${last.symbol||''}</em> ${last.notional != null ? usd(last.notional) : ''} ` +
+      `<span class="${good ? 'up' : bad ? 'down' : ''}">${(last.status||'').toUpperCase()}</span>`,
+      good ? 'filled' : bad ? 'refused' : 'act');
+    if (route || last.note) emit(last.at, '', `<span style="color:#3b4048">${route}${last.note ? ' — ' + last.note : ''}</span>`);
   }
 
   const a = s.account || {};
@@ -913,8 +957,7 @@ function seedTerminal(s){
   for (const r of rows) {
     const dir = r.action === 'long' ? 'up' : (r.action === 'short' || r.action === 'escape') ? 'down' : '';
     emit(r.at, 'DECIDE', `<span class="${dir}"><em>${(r.action||'').toUpperCase()}</em></span> ` +
-      `${pct(r.size||0,0)} <em class="fly">${r.symbol||''}</em>   ` +
-      `<span style="color:#3b4048">${r.why||''}</span>`);
+      `${pct(r.size||0,0)} <em class="fly">${r.symbol||''}</em>`, 'act');
   }
   if (rows.length) emit(Date.now(), 'INGEST', `<span style="color:#3b4048">` +
     `${rows.length} earlier decisions replayed from the tape — live from here</span>`);
