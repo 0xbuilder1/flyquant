@@ -379,4 +379,126 @@ ok('utilisation and exposure add up', () => {
   assert.strictEqual(b.positions[1].side, 'short');
 });
 
+
+// ── MARGIN SLOTS AND LEVERAGE ───────────────────────────────────────────────────────────────────
+//
+// The account is divided into slots of MARGIN, and each slot's notional is its margin times whatever
+// leverage that market allows. These tests exist because the obvious alternative — a fixed notional
+// per slot — silently overcommits margin on the nine markets that refuse 10x, and the symptom is the
+// exchange rejecting the tenth order while the account looks well inside its own cap.
+console.log('margin slots');
+
+// 10x is available here (1000 hundredths of a percent = 10% initial margin)
+const TEN_X = { ...MARKET, minInitialMarginFraction: 1000 };
+// PONS's real limit: 3333 = 33.33% initial margin = 3x
+const THREE_X = { ...MARKET, minInitialMarginFraction: 3333 };
+const SLOTS = { maxFraction: 1, maxTotalFraction: 10, slots: 10, leverage: 10 };
+
+ok('ten slots at 10x makes one position a full equity of notional', () => {
+  const p = plan({ account: account(1000), market: TEN_X, decision: LONG, exposure: SLOTS });
+  assert.strictEqual(p.slotMargin, 100);
+  assert.strictEqual(p.leverage, 10);
+  assert.strictEqual(p.target, 1000);
+});
+
+ok('a market that only allows 3x gets 3x off the SAME slot of margin, not 10x', () => {
+  const p = plan({ account: account(1000), market: THREE_X, decision: LONG, exposure: SLOTS });
+  assert.strictEqual(p.slotMargin, 100);
+  assert.ok(Math.abs(p.marketMaxLeverage - 3.0003) < 0.001, `got ${p.marketMaxLeverage}`);
+  assert.ok(Math.abs(p.target - 300.03) < 0.01, `got ${p.target}`);
+  assert.ok(p.slotCapped, 'the slot should have bound it');
+});
+
+ok('ten slots always fit, whatever mix of markets the fly picked', () => {
+  // the worst case for margin: every slot in a market that refuses leverage
+  let margin = 0;
+  for (let i = 0; i < 10; i++) {
+    const p = plan({ account: account(1000), market: THREE_X, decision: LONG,
+                     exposure: { ...SLOTS, maxTotalFraction: 100 } });
+    margin += Math.abs(p.target) / p.leverage;
+  }
+  assert.ok(margin <= 1000 + 1e-6, `ten slots wanted $${margin.toFixed(2)} of margin on $1000`);
+});
+
+ok('the slot scales with equity and nothing else — a doubled account doubles the position', () => {
+  const a = plan({ account: account(1000), market: TEN_X, decision: LONG, exposure: SLOTS });
+  const b = plan({ account: account(2000), market: TEN_X, decision: LONG, exposure: SLOTS });
+  assert.strictEqual(b.target, a.target * 2);
+});
+
+ok('conviction and appetite still move inside the slot', () => {
+  const full = plan({ account: account(1000), market: TEN_X, decision: LONG, exposure: SLOTS });
+  const half = plan({ account: account(1000), market: TEN_X, decision: HALF, exposure: SLOTS });
+  assert.strictEqual(half.target, full.target / 2);
+});
+
+ok('a mood with no appetite takes no slot at all', () => {
+  const p = plan({ account: account(1000), market: TEN_X, exposure: SLOTS,
+                   decision: { action: 'long', size: 1, why: 'test', mood: { appetite: 0 } } });
+  assert.strictEqual(p.target, 0);
+});
+
+ok('leverage unset is leverage 1 — the old behaviour, exactly', () => {
+  const p = plan({ account: account(1000), market: TEN_X, decision: LONG, exposure: { maxFraction: 1 } });
+  assert.strictEqual(p.target, 1000);
+  assert.strictEqual(p.leverage, 1);
+});
+
+ok('a full book refuses a NEW market rather than overcommitting margin', () => {
+  // ten markets already held, and the fly turns to an eleventh
+  const full = [];
+  for (let i = 0; i < 10; i++) full.push(pos(100 + i, 100, 'M' + i));
+  const p = plan({ account: account(1000, full), market: TEN_X, decision: LONG, exposure: SLOTS });
+  assert.strictEqual(p.order, null);
+  assert.strictEqual(p.target, 0);
+  assert.ok(/slots are full/.test(p.reason), p.reason);
+});
+
+ok('a full book still lets the fly add to a market it already holds', () => {
+  const full = [pos(44, 100)];                       // PONS, the market under test
+  for (let i = 0; i < 9; i++) full.push(pos(100 + i, 100, 'M' + i));
+  const p = plan({ account: account(1000, full), market: TEN_X, decision: LONG, exposure: SLOTS });
+  assert.ok(p.order, p.reason);
+  assert.ok(p.target > 100, `should have added, went to ${p.target}`);
+});
+
+ok('a full book never blocks an exit', () => {
+  const full = [pos(44, 500)];
+  for (let i = 0; i < 9; i++) full.push(pos(100 + i, 100, 'M' + i));
+  const p = plan({ account: account(1000, full), market: TEN_X, decision: ESCAPE, exposure: SLOTS });
+  assert.strictEqual(p.target, 0);
+  assert.ok(p.order.reduceOnly);
+});
+
+ok('margin can never exceed the account, whatever the fly chooses', () => {
+  // every decision goes to a DIFFERENT market, the way the fly actually behaves
+  const acct = account(1000, []);
+  for (let k = 0; k < 40; k++) {
+    const mkt = { ...(k % 3 ? TEN_X : THREE_X), marketId: 200 + k, symbol: 'X' + k };
+    const p = plan({ account: { ...acct, exposure: acct.positions.reduce((s, q) => s + Math.abs(q.notional), 0) },
+                     market: mkt, decision: LONG, exposure: SLOTS });
+    if (!p.order) continue;
+    acct.positions.push({ marketId: mkt.marketId, symbol: mkt.symbol, sign: Math.sign(p.target),
+      size: Math.abs(p.target)/p.mark, entry: p.mark, notional: p.target, unrealized: 0,
+      realized: 0, liquidation: 0, funding: 0, lev: p.leverage });
+  }
+  assert.ok(acct.positions.length <= SLOTS.slots, `opened ${acct.positions.length} in ${SLOTS.slots} slots`);
+  const margin = acct.positions.reduce((s, q) => s + Math.abs(q.notional)/q.lev, 0);
+  assert.ok(margin <= 1000 + 1e-6, `margin reached $${margin.toFixed(2)} on $1000`);
+});
+
+ok('an exit is never blocked by the slot', () => {
+  const held = [pos(44, 5000)];
+  const p = plan({ account: account(1000, held), market: TEN_X, decision: ESCAPE, exposure: SLOTS });
+  assert.strictEqual(p.target, 0);
+  assert.strictEqual(p.order.side, 'sell');
+  assert.ok(p.order.reduceOnly);
+});
+
+ok('a market that publishes no margin fraction falls back to the operator leverage, not Infinity', () => {
+  const p = plan({ account: account(1000), market: MARKET, decision: LONG, exposure: SLOTS });
+  assert.strictEqual(p.leverage, 10);
+  assert.ok(Number.isFinite(p.target));
+});
+
 console.log(`\n${pass} passed`);

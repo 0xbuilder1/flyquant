@@ -12,6 +12,8 @@
  */
 'use strict';
 
+const senses = require('../brain/senses.js');
+
 const fs = require('fs');
 const path = require('path');
 
@@ -71,20 +73,51 @@ function activityOf(brain, result, graphDir) {
   return { buf: out, placed: idx.length };
 }
 
-function build({ brain, arena, seats, markets, pass, decision, meta }) {
+function build({ brain, arena, seats, markets, pass, decision, meta, ctx = null }) {
   const g = brain.manifest;
   const r = decision.rates;
 
+  // EVERY MARKET AS THE FLY FEELS IT, not just the one it chose.
+  //
+  // The panorama is the whole point: 57 markets are in the visual field at once and the fly turns to
+  // one of them. A page that only carries the chosen market cannot show that, so each seat publishes
+  // what the exchange said about it AND the six sensory channels at that seat — the same numbers the
+  // antennal lobe would see, normalised against the same population. The page then shows what the fly
+  // could have smelled anywhere in the arena, which is what makes the choice legible rather than an
+  // assertion.
+  const round = (x, n) => (Number.isFinite(x) ? Math.round(x * 10 ** n) / 10 ** n : null);
   const rows = markets
-    .map((m) => ({
-      symbol: m.symbol,
-      seat: seats.get(m.symbol),
-      bright: Math.round(m.bright * 1000) / 1000,
-      fall: Math.round(m.fall * 1000) / 1000,
-      moved: m.moved == null ? null : Math.round(m.moved * 1e6) / 1e6,
-      mark: m.mark,
-      volume: m.market.volume,
-    }))
+    .map((m) => {
+      const mk = m.market || {};
+      const chem = ctx ? senses.chemistry(m, ctx) : null;
+      const lev = mk.minInitialMarginFraction > 0 ? round(10000 / mk.minInitialMarginFraction, 2) : null;
+      return {
+        symbol: m.symbol,
+        seat: seats.get(m.symbol),
+        bright: round(m.bright, 3),
+        fall: round(m.fall, 3),
+        moved: m.moved == null ? null : round(m.moved, 6),
+        mark: m.mark,
+        volume: mk.volume,
+        // what the exchange publishes and the fly now smells
+        openInterest: mk.openInterest == null ? null : round((mk.openInterest || 0) * m.mark, 0),
+        funding: mk.funding == null ? null : mk.funding,
+        index: mk.index == null ? null : mk.index,
+        high: mk.high == null ? null : mk.high,
+        low: mk.low == null ? null : mk.low,
+        trades: mk.trades == null ? null : mk.trades,
+        maxLeverage: lev,
+        // the six channels at this seat, 0-1, against the whole universe this pass
+        smell: chem ? {
+          food: round(chem.rise, 4),
+          geosmin: round(chem.basis, 4),
+          cVA: round(chem.crowd, 4),
+          wind: round(chem.imbalance, 4),
+          heat: round(chem.fundingLoad, 4),
+          humidity: round(chem.volatility, 4),
+        } : null,
+      };
+    })
     .sort((a, z) => a.seat - z.seat);
 
   return {
@@ -112,6 +145,9 @@ function build({ brain, arena, seats, markets, pass, decision, meta }) {
       inputTypes: arena.inputTypes,
       inputNeurons: arena.neurons,
     },
+    // what each sense IS: the cell types it stimulates, how many neurons that is, and the market
+    // quantity it carries. Published so the page can state the wiring rather than assert it.
+    senses: senses.channelReport(brain),
     pass: {
       at: Date.now(),
       ms: pass.result.ms,

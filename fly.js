@@ -16,6 +16,7 @@ const path = require('path');
 
 const { Brain } = require('./brain/lif.js');
 const A = require('./brain/arena.js');
+const senses = require('./brain/senses.js');
 const { buildArena, seatMarkets, runPass, N_BANDS } = A;
 const { decide } = require('./brain/readout.js');
 const lighter = require('./trader/lighter.js');
@@ -103,7 +104,18 @@ function loadConfig() {
   try { heading0 = Number(JSON.parse(fs.readFileSync(headFile, 'utf8')).heading) || 0; } catch { /* first run */ }
 
   // ── the fly ─────────────────────────────────────────────────────────────────────────────────
-  const ctx = { fundingClampSmall: 0.05, tradesMax: Math.max(...markets.map((m) => m.market.trades), 1) };
+  //
+  // What the channels normalise against is the UNIVERSE AS IT STANDS THIS PASS, not a ceiling. Each
+  // market is felt as its standing among its 56 peers, the way the antennal lobe scales a glomerulus
+  // by the whole population's input. There is no maximum here to pick and therefore none to fit.
+  const ctx = {
+    // books seen on previous passes, so Johnston's organ has something to feel
+    depthOf: (() => {
+      try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'keeper', 'state', 'books.json'), 'utf8')); }
+      catch { return {}; }
+    })(),
+  };
+  ctx.ambient = senses.ambient(markets, ctx);
   const tRun = Date.now();
   const pass = runPass(brain, arena, seats, markets, { ms, seed, ctx, heading0, raster: { capacity: 400000 } });
   try {
@@ -170,6 +182,18 @@ function loadConfig() {
       console.log(`depth ${pass.chosen.symbol}: unreadable — ${e.message}`);
     }
 
+    // remember this book for the next pass, so the fly can feel the wind on a market it revisits
+    if (depth) {
+      try {
+        const bf = path.join(__dirname, 'keeper', 'state', 'books.json');
+        const books = ctx.depthOf || {};
+        books[pass.chosen.symbol] = { bid: depth.bid, ask: depth.ask, spreadBps: depth.spreadBps, at: Date.now() };
+        for (const k of Object.keys(books)) if (Date.now() - (books[k].at || 0) > 6 * 3600e3) delete books[k];
+        fs.mkdirSync(path.dirname(bf), { recursive: true });
+        fs.writeFileSync(bf, JSON.stringify(books));
+      } catch (e) { console.error('could not record the book:', e.message); }
+    }
+
     plan = position.plan({
       account,
       market: pass.chosen.market ? { ...pass.chosen.market, mark: pass.chosen.mark } : pass.chosen,
@@ -188,8 +212,8 @@ function loadConfig() {
       console.log(`\nplan: hold $${plan.held.toFixed(2)} → target $${plan.target.toFixed(2)} ` +
         `= ${plan.order.side} ${plan.order.sizeBase} ${plan.symbol} ($${plan.order.notional.toFixed(2)})` +
         (plan.order.execution === 'post-only'
-          ? `  RESTING at ${plan.order.limitPrice} (never crosses; spread ${(plan.order.spreadBps || 0).toFixed(1)}bp)`
-          : `  CROSSING (exit)`) +
+          ? `  RESTING at ${plan.order.limitPrice} (crossing would cost ${plan.crossCostBps}bp, over the ${plan.takerMaxBps}bp line)`
+          : `  CROSSING (${plan.target === 0 ? 'an exit always crosses' : `${plan.crossCostBps}bp, under the ${plan.takerMaxBps}bp line`})`) +
         (plan.capped ? `  [capped into $${plan.room.toFixed(2)} of book room]` : '') +
         (plan.depthCapped ? `  [CAPPED BY DEPTH: the book only carries $${Math.round(plan.depth.min).toLocaleString()} on its thin side]` : ''));
       console.log(`  ${feedEntry.status.toUpperCase()}${feedEntry.note ? ' — ' + feedEntry.note : ''}` +
@@ -230,7 +254,7 @@ function loadConfig() {
 
   // ── publish ─────────────────────────────────────────────────────────────────────────────────
   const stats = publish.build({
-    brain, arena, seats, markets, pass, decision: d,
+    brain, arena, seats, markets, pass, decision: d, ctx,
     meta: {
       cpuMs: Date.now() - tRun, fired,
       windowSeconds: prev ? Math.round((snap.at - prev.at) / 1000) : null,

@@ -74,9 +74,12 @@ function currentNotional(account, marketId) {
 /**
  * decision + account + market -> an order, or a reason there is none.
  *
- * exposure.maxFraction is the only policy number, it lives in config, and at its default of 1 the
- * fly can never hold more notional than the account is worth — no leverage, whatever the exchange
- * would allow. Raising it is the operator taking leverage on deliberately.
+ * The policy numbers all live in config, and there are four: maxFraction (a position's ceiling as a
+ * fraction of equity), slots and leverage (how the account is divided and how hard each slot is
+ * levered), and maxTotalFraction (the sum). At maxFraction 1, slots 1 and leverage 1 the fly can
+ * never hold more notional than the account is worth. Raising any of them is the operator taking
+ * leverage on deliberately, and every one of them scales WITH equity rather than being a dollar
+ * figure — an account that doubles simply takes positions twice the size, with nothing to change.
  */
 function plan({ account, market, decision, chosen, exposure = {}, depth = null }) {
   // THE FLY SETS THE AMOUNT; THE OPERATOR SETS THE CEILING.
@@ -106,6 +109,60 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
   else if (decision.action === 'long') target = +decision.size * equity * maxFraction;
   else if (decision.action === 'short') target = -decision.size * equity * maxFraction;
   else return { ...base, target: held, order: null, reason: 'the fly is holding' };
+
+  // ── THE MARGIN SLOT ─────────────────────────────────────────────────────────────────────────
+  //
+  // The account is meant to carry `slots` positions at once, so each one is allowed ONE SLOT'S WORTH
+  // OF MARGIN — equity/slots — and its notional is that margin times the leverage the market will
+  // actually give it. At 10 slots and 10x that is a full equity's notional per position and ten
+  // positions before the account is committed, which is the point of it.
+  //
+  // MARGIN, NOT NOTIONAL, IS WHAT DIVIDES EVENLY. Nine of the 57 markets refuse 10x: PONS, CASHCAT,
+  // AI and ANSEM cap at 3x, six more at 5x. Budgeting a fixed NOTIONAL per slot would silently
+  // demand three slots' margin for a PONS position and the tenth order would simply be rejected by
+  // the exchange with the account apparently under its cap. Budgeting margin instead means a 3x
+  // market gets 0.3x equity of notional off the same slot and ten positions always fit.
+  //
+  // The leverage ceiling is the EXCHANGE'S OWN, read from the market: minInitialMarginFraction is in
+  // hundredths of a percent, so 1000 is 10% initial margin and therefore 10x. Nothing here is a
+  // number chosen to improve returns; it is the exchange's limit and the operator's slot count.
+  // slots UNSET means the operator has not divided the account, so there is no count to enforce and
+  // one position may be the whole allowance — the behaviour before slots existed, preserved exactly.
+  const slotsDeclared = exposure.slots != null;
+  const slots = slotsDeclared ? Math.max(1, Number(exposure.slots)) : 1;
+  const wanted = exposure.leverage == null ? 1 : Number(exposure.leverage);
+  const imf = Number(market.minInitialMarginFraction) || 0;
+  const marketMaxLeverage = imf > 0 ? 10000 / imf : wanted;
+  const leverage = Math.max(1, Math.min(wanted, marketMaxLeverage));
+  const slotMargin = equity / slots;
+  const slotNotional = slotMargin * leverage;
+  let slotCapped = false;
+  if (Math.abs(target) > slotNotional) { target = Math.sign(target) * slotNotional; slotCapped = true; }
+
+  // ── THERE ARE ONLY `slots` SLOTS ────────────────────────────────────────────────────────────
+  //
+  // Sizing each position at one slot's margin bounds how BIG each one is and says nothing at all
+  // about HOW MANY there are. trader/simulate.js caught this immediately: twelve decisions opened
+  // twelve positions on a ten-slot account and put 91% of the balance into margin, and the
+  // thirteenth would simply have been rejected by the exchange with the account apparently inside
+  // every cap it knew about.
+  //
+  // So a market the account is not already in needs a free slot. With each slot bounded at
+  // equity/slots of margin and at most `slots` of them open, total margin can never exceed the
+  // account — by construction rather than by a limit that happens to bind.
+  //
+  // A FULL BOOK REFUSES RATHER THAN EVICTING. Choosing which existing position to close in order to
+  // make room would be the keeper overriding the fly about what to hold, which is exactly the
+  // decision this product gives to the animal. It does not deadlock: staleAfterMinutes closes
+  // positions the fly has stopped facing, so slots free themselves.
+  //
+  // ADDING TO A POSITION THE ACCOUNT ALREADY HAS IS ALWAYS ALLOWED, and so is reducing one. This
+  // bounds how many markets are held, never what may be done in a market already held.
+  const openCount = (account.positions || []).filter((p) => Math.abs(p.notional) > 0).length;
+  if (slotsDeclared && held === 0 && target !== 0 && openCount >= slots) {
+    return { ...base, target: 0, order: null, slots, openCount,
+             reason: `all ${slots} slots are full — nothing is held in ${market.symbol} and there is no room to open one` };
+  }
 
   // ── THE AGGREGATE CAP ───────────────────────────────────────────────────────────────────────
   // maxFraction is PER MARKET. The fly picks a different market most passes and never revisits the
@@ -176,6 +233,7 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
   const maker = canRest && crossCostBps > takerMaxBps;
 
   const out = { ...base, target, delta, sizeBase, capped, depthCapped, maker, room, otherExposure,
+              leverage, marketMaxLeverage, slots, slotMargin, slotNotional, slotCapped,
               crossCostBps: Math.round(crossCostBps * 100) / 100, takerMaxBps,
               depth: depth ? { min: depth.min, bid: depth.bid, ask: depth.ask, spreadBps: depth.spreadBps } : null };
 

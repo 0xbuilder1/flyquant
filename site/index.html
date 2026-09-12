@@ -4,204 +4,325 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/png" href="/favicon.png">
+<meta property="og:title" content="FLYQUANT">
+<meta property="og:description" content="165,836 neurons of a real fruit fly, trading a funded account on Lighter. Every position public, every fill verifiable.">
 <meta property="og:image" content="/banner.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="/banner.png">
 <title>FLYQUANT — a fruit fly's connectome, trading</title>
 <meta name="description" content="165,836 neurons of a real fruit fly, trading a funded account on Lighter. Every position public, every fill verifiable.">
 <style>
-  /* ── a research tool, not a light show ──────────────────────────────────────────────
-     Neutral ground, near-white ink, hairline rules, one accent. Colour carries meaning
-     and nothing else: green and red mean direction of money, amber means the animal.
-     No glow, no scanlines — the data is the decoration.                                */
-  :root{
-    --bg:#0b0c0e; --panel:#101215; --sunk:#08090b;
-    --line:#1c1f24; --line2:#2a2e35;
-    --ink:#e9eaec; --dim:#8d939b; --faint:#5a6067;
-    --up:#3fb950; --down:#f85149; --fly:#d99a2b;
-    --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
-    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,system-ui,sans-serif;
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
-    font-size:13px;line-height:1.45;-webkit-font-smoothing:antialiased}
-  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-  a{color:inherit;text-decoration:none;border-bottom:1px solid var(--line2)}
-  a:hover{border-color:var(--dim)}
-  ::-webkit-scrollbar{width:10px;height:10px}
-  ::-webkit-scrollbar-track{background:var(--sunk)}
-  ::-webkit-scrollbar-thumb{background:#23272d}
+/* ═══ AN INSTRUMENT ══════════════════════════════════════════════════════════════════════════════
+   The animal is the page. It sits in the middle at the size of the screen, the 57 markets sit
+   around it at the azimuths it actually sees them at, and every number that reaches it is written
+   in the margin beside it. What the account is worth goes underneath, because that is the
+   consequence and not the subject.
 
-  .wrap{max-width:1360px;margin:0 auto;padding:0 26px}
+   THE COLOUR IS NOT A CHOICE OF PALETTE. A fly brain is looked at down a microscope with a
+   fluorescent reporter in it, and it comes back dark green with the active tissue burning
+   yellow-green — that is what GFP and GCaMP images look like, and a neuron firing is literally how
+   those images get brighter. So the cloud is lit the way the specimen would be, and the brightness
+   means the same thing it means in the real image: that cell just spiked.
 
-  /* header */
-  header{border-bottom:1px solid var(--line);padding:15px 0 14px;margin-bottom:30px}
-  .hrow{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
-  .mark{font:600 15px/1 var(--sans);letter-spacing:.14em}
-  .mark i{color:var(--fly);font-style:normal}
-  .tag{color:var(--dim);font-size:12.5px}
-  .live{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--dim);font-size:11px;
-    letter-spacing:.09em;text-transform:uppercase}
-  .live .pip{width:6px;height:6px;border-radius:50%;background:var(--up)}
-  .live.stale .pip{background:var(--faint)}
+   Everything else stays out of its way. Hairlines, never boxes. Tabular figures everywhere so
+   columns of numbers can be read down. Colour away from the animal means direction of money and
+   nothing else. No gradient, no shadow, no glass — a measured thing should look measured.        */
+:root{
+  --bg:#06080a; --ink:#eceef0; --dim:#7f868f; --faint:#4d535b;
+  --line:#161a1f; --line2:#232830;
+  --up:#35b667; --down:#e0504a;
+  --fly:#a8e02b;            /* the reporter, lit */
+  --flydim:#4a7a1e;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --sans:"Inter var",Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0}
+html{background:var(--bg)}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--sans);
+  font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1;
+  -webkit-font-smoothing:antialiased; overflow-x:hidden;
+}
+a{color:inherit}
+canvas{display:block}
 
-  /* section titles: a rule with a word on it */
-  h2{font:500 10.5px/1 var(--sans);letter-spacing:.15em;text-transform:uppercase;color:var(--faint);
-    margin:0 0 14px;display:flex;align-items:center;gap:12px}
-  h2::after{content:'';flex:1;height:1px;background:var(--line)}
-  h2 em{font-style:normal;color:var(--dim);letter-spacing:.04em;text-transform:none;font-size:11px}
+.lbl{font:500 10px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase; color:var(--faint)}
+.num{font-family:var(--mono); font-variant-numeric:tabular-nums}
+.up{color:var(--up)} .down{color:var(--down)} .flyc{color:var(--fly)}
 
-  /* ── the hero: what it is worth, and the shape of getting there ── */
-  .hero{margin-bottom:34px}
-  .headline{display:flex;align-items:flex-end;gap:36px;flex-wrap:wrap;margin-bottom:4px}
-  .value{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:64px;line-height:.95;
-    font-weight:500;letter-spacing:-.035em}
-  .delta{display:flex;flex-direction:column;gap:2px;padding-bottom:7px}
-  .delta .d1{font-family:var(--mono);font-size:17px;font-variant-numeric:tabular-nums}
-  .delta .d2{font-size:11px;color:var(--faint);letter-spacing:.05em;text-transform:uppercase}
-  .up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--dim)}
-  .statline{display:flex;gap:30px;flex-wrap:wrap;margin:14px 0 16px}
-  .statline div{display:flex;flex-direction:column;gap:3px}
-  .statline b{font-family:var(--mono);font-size:15px;font-weight:500;font-variant-numeric:tabular-nums}
-  .statline span{font-size:10.5px;color:var(--faint);letter-spacing:.07em;text-transform:uppercase}
-  #curve{display:block;width:100%;height:300px}
-  .curvefoot{display:flex;justify-content:space-between;font-family:var(--mono);font-size:10.5px;
-    color:var(--faint);border-top:1px solid var(--line);padding-top:7px;margin-top:-4px}
+/* a rule with its name sitting on it, the way a plot axis is labelled */
+.rule{display:flex;align-items:center;gap:14px;margin:0 0 18px}
+.rule:before{content:"";height:1px;background:var(--line2);width:26px;flex:none}
+.rule>span:first-child{font:500 10px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--dim);flex:none}
+.rule:after{content:"";height:1px;background:var(--line);flex:1}
+.rule em{font:400 10px/1 var(--mono);letter-spacing:.06em;color:var(--faint);font-style:normal;flex:none}
 
-  /* ── positions ── */
-  .cols{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:38px;margin-bottom:34px}
-  @media(max-width:940px){.cols{grid-template-columns:1fr;gap:30px}}
-  .pos{display:grid;grid-template-columns:1fr;gap:0}
-  .p{display:grid;grid-template-columns:76px 1fr 88px 78px;align-items:center;gap:12px;
-    padding:9px 0;border-bottom:1px solid var(--line)}
-  .p:last-child{border-bottom:0}
-  .p .sym{font-family:var(--mono);font-size:13.5px;font-weight:500}
-  .p .sd{font-size:10px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase}
-  .bar{height:3px;background:var(--line2);position:relative}
-  .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--dim)}
-  .bar.long i{background:var(--up);opacity:.75}
-  .bar.short i{background:var(--down);opacity:.75}
-  .p .n{font-family:var(--mono);font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
-  .p .pl{font-family:var(--mono);font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
-  .empty{color:var(--faint);font-size:12px;padding:10px 0}
+.wrap{max-width:1480px;margin:0 auto;padding:0 clamp(14px,3vw,40px)}
 
-  /* ── the animal, now a supporting figure ── */
-  .fig{position:relative;background:var(--sunk);border:1px solid var(--line)}
-  #cloud{display:block;width:100%;height:260px;cursor:crosshair}
-  .figover{position:absolute;left:12px;bottom:10px;right:12px;pointer-events:none;
-    font-family:var(--mono);font-size:10px;color:var(--faint);display:flex;justify-content:space-between}
-  .figover b{color:var(--dim);font-weight:400}
-  .orbit{position:absolute;inset:0;pointer-events:none;overflow:hidden}
-  .orbit i{position:absolute;font-style:normal;font-family:var(--mono);font-size:9px;
-    transform:translate(-50%,-50%);white-space:nowrap;color:var(--faint)}
-  .orbit i.pick{color:var(--fly)} .orbit i.loom{color:var(--down)}
+/* ═══ top bar ═════════════════════════════════════════════════════════════════════════════════ */
+header{position:sticky;top:0;z-index:40;background:rgba(6,8,10,.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+header .in{display:flex;align-items:center;gap:22px;height:46px}
+.mark{font:600 13px/1 var(--mono);letter-spacing:.22em}
+.mark i{color:var(--fly);font-style:normal}
+.pulse{display:flex;align-items:center;gap:7px;font:400 10px/1 var(--mono);letter-spacing:.1em;color:var(--dim)}
+.pulse b{width:5px;height:5px;border-radius:50%;background:var(--fly);animation:bp 2.4s ease-in-out infinite}
+.pulse.stale b{background:var(--faint);animation:none}
+@keyframes bp{0%,100%{opacity:1}50%{opacity:.22}}
+header nav{margin-left:auto;display:flex;gap:20px}
+header nav a{font:400 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);text-decoration:none}
+header nav a:hover{color:var(--ink)}
+.armchip{font:500 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;padding:5px 8px;border:1px solid var(--line2);color:var(--dim)}
+.armchip.live{border-color:var(--fly);color:var(--fly)}
 
-  .verdict{margin-top:14px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-  .verdict .act{font-family:var(--mono);font-size:19px;font-weight:500}
-  .verdict .sym{font-family:var(--mono);font-size:19px;color:var(--ink)}
-  .why{color:var(--faint);font-size:11.5px;margin-top:5px;font-family:var(--mono)}
-  .drives{display:grid;gap:5px;margin-top:14px}
-  .dr{display:grid;grid-template-columns:66px 1fr 44px;align-items:center;gap:10px;font-size:11px}
-  .dr span{color:var(--dim);font-family:var(--mono)}
-  .dr .t{height:2px;background:var(--line2)}
-  .dr .t i{display:block;height:100%;background:var(--dim)}
-  .dr.on .t i{background:var(--fly)} .dr.on span{color:var(--ink)}
-  .dr .hz{font-family:var(--mono);color:var(--faint);text-align:right;font-variant-numeric:tabular-nums}
+/* ═══ THE ANIMAL, AT THE SIZE OF THE SCREEN ═══════════════════════════════════════════════════ */
+#stage{position:relative;height:min(94vh,1020px);min-height:600px;width:100%;overflow:hidden}
+#cloud{position:absolute;inset:0;width:100%;height:100%}
+/* the faint pool of light a specimen sits in */
+#stage:before{
+  content:"";position:absolute;left:50%;top:50%;width:min(120vw,1500px);height:min(120vh,1100px);
+  transform:translate(-50%,-50%);pointer-events:none;
+  background:radial-gradient(ellipse at center,rgba(120,200,40,.05),transparent 62%);
+}
 
-  /* ── tape ── */
-  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px}
-  thead th{text-align:left;font:500 10px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase;
-    color:var(--faint);padding:0 12px 9px 0;border-bottom:1px solid var(--line)}
-  thead th.r{text-align:right}
-  td{padding:7px 12px 7px 0;border-bottom:1px solid var(--line);color:var(--dim);white-space:nowrap}
-  td.r{text-align:right;font-variant-numeric:tabular-nums}
-  tr:hover td{background:#0e1013}
-  td .sym{color:var(--ink)}
-  .buy{color:var(--up)} .sell{color:var(--down)}
-  .st{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
-    border:1px solid var(--line2);padding:1px 5px}
-  .st.sent,.st.filled{color:var(--up);border-color:#1d3b25}
-  .st.refused{color:var(--down);border-color:#3d2020}
-  .scroll{max-height:420px;overflow:auto}
+#orbit{position:absolute;inset:0;pointer-events:none}
+#orbit .mk{position:absolute;transform:translate(-50%,-50%);white-space:nowrap;text-align:center;transition:opacity .5s linear}
+#orbit .mk s{display:block;font:500 11px/1.25 var(--mono);letter-spacing:.06em;text-decoration:none;color:var(--ink)}
+#orbit .mk u{display:block;font:400 9px/1.4 var(--mono);text-decoration:none;color:var(--faint)}
+/* open interest as two pixels of bar: the crowd around that market */
+#orbit .mk q{display:block;height:2px;margin:3px auto 0;background:var(--line2);width:26px;position:relative}
+#orbit .mk q i{position:absolute;left:0;top:0;height:100%;background:var(--dim)}
+#orbit .mk.pick s{color:var(--fly)}
+#orbit .mk.pick q i{background:var(--fly)}
+#orbit .mk.loom s{color:var(--down)}
 
-  footer{border-top:1px solid var(--line);margin-top:36px;padding:18px 0 60px;color:var(--faint);font-size:11px}
-  footer p{margin:0 0 8px;max-width:76ch;line-height:1.6}
-  footer b{color:var(--dim);font-weight:500}
+.ov{position:absolute;pointer-events:none;z-index:6}
+.ov.tl{left:clamp(14px,3vw,40px);top:26px}
+.ov.tr{right:clamp(14px,3vw,40px);top:26px;text-align:right}
+.ov.bl{left:clamp(14px,3vw,40px);bottom:26px}
+.ov.br{right:clamp(14px,3vw,40px);bottom:26px;text-align:right}
+
+#pnl{font:300 clamp(38px,6.4vw,88px)/.9 var(--mono);letter-spacing:-.03em}
+#pnlPct{font:400 clamp(13px,1.5vw,19px)/1 var(--mono);margin-top:10px}
+#pnlOf{margin-top:9px}
+
+#verdict{font:300 clamp(22px,3.1vw,42px)/1 var(--mono);letter-spacing:-.02em}
+#verdict b{font-weight:500}
+#why{font:400 11px/1.5 var(--mono);color:var(--dim);max-width:34ch;margin-top:10px}
+
+#senses{display:flex;flex-direction:column;gap:9px;align-items:flex-end}
+#senses .s{display:flex;align-items:center;gap:9px;justify-content:flex-end}
+#senses .s em{font:400 9px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-style:normal;width:62px;text-align:right}
+#senses .s .t{width:clamp(52px,7vw,96px);height:3px;background:var(--line2);position:relative}
+#senses .s .t i{position:absolute;left:0;top:0;height:100%;background:var(--dim)}
+#senses .s b{font:400 10px/1 var(--mono);color:var(--dim);width:30px;text-align:right}
+#senses .s.hot em{color:var(--dim)} #senses .s.hot .t i{background:var(--fly)} #senses .s.hot b{color:var(--ink)}
+
+#drives{display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+#drives .d{display:flex;align-items:center;gap:9px}
+#drives .d em{font:400 9px/1 var(--mono);letter-spacing:.08em;color:var(--faint);font-style:normal}
+#drives .d .t{width:clamp(44px,6vw,78px);height:3px;background:var(--line2);position:relative}
+#drives .d .t i{position:absolute;right:0;top:0;height:100%;background:var(--dim)}
+#drives .d b{font:400 10px/1 var(--mono);color:var(--dim);width:36px;text-align:right}
+#drives .d.on em{color:var(--ink)} #drives .d.on .t i{background:var(--fly)} #drives .d.on b{color:var(--ink)}
+
+#facing{margin-top:14px;font:400 10px/1.6 var(--mono);color:var(--faint)}
+#facing b{color:var(--ink);font-weight:400}
+
+.hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font:400 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);z-index:6;pointer-events:none}
+
+/* ═══ sections ════════════════════════════════════════════════════════════════════════════════ */
+section{padding:clamp(44px,6vw,86px) 0 0}
+section:last-of-type{padding-bottom:clamp(44px,6vw,86px)}
+
+.aum{display:flex;align-items:flex-end;gap:clamp(22px,4vw,64px);flex-wrap:wrap;margin-bottom:26px}
+.aum .big{font:300 clamp(44px,7vw,104px)/.86 var(--mono);letter-spacing:-.035em}
+.aum .side{display:flex;gap:clamp(20px,3.4vw,50px);padding-bottom:8px;flex-wrap:wrap}
+.aum .side>div{display:flex;flex-direction:column;gap:6px}
+.aum .side b{font:400 clamp(15px,1.7vw,22px)/1 var(--mono)}
+#curveBox{position:relative;border-top:1px solid var(--line)}
+#curve{width:100%;height:340px;display:block}
+.cends{display:flex;justify-content:space-between;padding-top:8px}
+
+table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+thead th{font:500 9px/1 var(--mono);letter-spacing:.13em;text-transform:uppercase;color:var(--faint);text-align:left;padding:0 12px 9px 0;border-bottom:1px solid var(--line2)}
+tbody td{padding:9px 12px 9px 0;border-bottom:1px solid var(--line);color:var(--dim);white-space:nowrap}
+tbody td.wrap{white-space:normal;min-width:26ch}
+tbody tr:hover td{color:var(--ink)}
+/* right-aligned columns keep their gutter, or the number runs into the next column —
+   only the last one in a row may sit flush against the edge */
+td.r,th.r{text-align:right}
+tbody td:last-child,thead th:last-child{padding-right:0}
+td.k{color:var(--ink)}
+.sym{color:var(--ink);letter-spacing:.05em}
+.bar{display:inline-block;width:44px;height:3px;background:var(--line2);position:relative;vertical-align:middle}
+.bar i{position:absolute;left:0;top:0;height:100%;background:var(--dim)}
+.st{font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+.st.sent,.st.filled{color:var(--up)} .st.refused,.st.rejected{color:var(--down)} .st.dry{color:var(--faint)}
+.scroll{overflow-x:auto}
+
+/* borders on the cells, not a coloured gap behind them — an incomplete last row would otherwise
+   leave the gap colour showing as blocks of nothing */
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border-top:1px solid var(--line)}
+.facts>div{padding:18px 16px 16px;border-bottom:1px solid var(--line);border-right:1px solid var(--line)}
+.facts b{display:block;font:400 clamp(18px,2.1vw,27px)/1 var(--mono);letter-spacing:-.02em;margin-bottom:8px}
+
+footer{border-top:1px solid var(--line);margin-top:clamp(44px,6vw,86px);padding:34px 0 60px}
+.claims{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:26px;margin-bottom:34px}
+.claims p{font:400 11px/1.75 var(--mono);color:var(--dim)}
+.claims p b{color:var(--ink);font-weight:400;display:block;margin-bottom:5px}
+.attrib{font:400 10px/1.8 var(--mono);color:var(--faint);max-width:78ch}
+.attrib a{color:var(--dim)}
+
+@media(max-width:820px){
+  #stage{height:min(78vh,720px)}
+  .ov.tr,.ov.br{display:none}
+  #orbit .mk u,#orbit .mk q{display:none}
+  #curve{height:240px}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
 
-  <header>
-    <div class="hrow">
-      <span class="mark"><i>FLY</i>QUANT</span>
-      <span class="tag">a fruit fly's connectome, trading a funded account</span>
-      <span class="live" id="live"><span class="pip"></span><span id="liveText">connecting</span></span>
-    </div>
-  </header>
+<header><div class="wrap in">
+  <div class="mark">FLY<i>QUANT</i></div>
+  <div class="pulse" id="live"><b></b><span id="liveText">connecting</span></div>
+  <nav>
+    <a href="#aum">equity</a><a href="#book">book</a><a href="#tape">tape</a><a href="#animal">animal</a>
+    <a id="verify" href="#" target="_blank" rel="noopener">account</a>
+  </nav>
+  <span class="armchip" id="armchip">—</span>
+</div></header>
 
-  <!-- what it is worth -->
-  <section class="hero">
-    <div class="headline">
-      <div class="value num" id="value">—</div>
-      <div class="delta">
-        <div class="d1" id="dAbs">—</div>
-        <div class="d2" id="dLabel">since the first pass</div>
-      </div>
-    </div>
-    <div class="statline" id="stats"></div>
-    <canvas id="curve"></canvas>
-    <div class="curvefoot"><span id="cFrom"></span><span id="cTo"></span></div>
-  </section>
+<!-- ═══ THE ANIMAL ═══ -->
+<div id="stage">
+  <canvas id="cloud"></canvas>
+  <div id="orbit"></div>
 
-  <div class="cols">
-    <section>
-      <h2>Positions <em id="posCount"></em></h2>
-      <div class="pos" id="positions"></div>
-    </section>
-
-    <section>
-      <h2>The animal</h2>
-      <div class="fig">
-        <canvas id="cloud"></canvas>
-        <div class="orbit" id="orbit"></div>
-        <div class="figover"><span id="figL"></span><span id="figR">drag to rotate</span></div>
-      </div>
-      <div class="verdict" id="verdict"></div>
-      <div class="why" id="why"></div>
-      <div class="drives" id="drives"></div>
-    </section>
+  <div class="ov tl">
+    <div class="lbl" style="margin-bottom:12px">account · profit and loss</div>
+    <div id="pnl" class="num">—</div>
+    <div id="pnlPct" class="num"></div>
+    <div id="pnlOf" class="lbl"></div>
   </div>
 
-  <section>
-    <h2>Tape <em id="tapeNote"></em></h2>
-    <div class="scroll">
-      <table>
-        <thead><tr>
-          <th>time</th><th>side</th><th>market</th><th class="r">size</th><th class="r">notional</th>
-          <th class="r">price</th><th>route</th><th>status</th><th></th><th></th>
-        </tr></thead>
-        <tbody id="feed"></tbody>
-      </table>
-    </div>
-  </section>
+  <div class="ov tr">
+    <div class="lbl" style="margin-bottom:12px">what it senses <em id="senseOf" style="font-style:normal"></em></div>
+    <div id="senses"></div>
+  </div>
 
-  <footer id="foot"></footer>
+  <div class="ov bl">
+    <div class="lbl" style="margin-bottom:12px">this pass</div>
+    <div id="verdict" class="num">—</div>
+    <div id="why"></div>
+  </div>
+
+  <div class="ov br">
+    <div class="lbl" style="margin-bottom:12px">descending neurons</div>
+    <div id="drives"></div>
+    <div id="facing"></div>
+  </div>
+
+  <div class="hint">drag to turn the animal</div>
 </div>
 
+<!-- ═══ WHAT THE ACCOUNT IS WORTH ═══ -->
+<section id="aum"><div class="wrap">
+  <div class="rule"><span>equity</span><em id="curveSpan"></em></div>
+  <div class="aum">
+    <div>
+      <div class="lbl" style="margin-bottom:14px">account value</div>
+      <div class="big num" id="equity">—</div>
+    </div>
+    <div class="side" id="aumSide"></div>
+  </div>
+  <div id="curveBox"><canvas id="curve"></canvas></div>
+  <div class="cends"><span class="lbl" id="cFrom"></span><span class="lbl" id="cTo"></span></div>
+</div></section>
+
+<!-- ═══ POSITIONS ═══ -->
+<section id="book"><div class="wrap">
+  <div class="rule"><span>positions</span><em id="bookNote"></em></div>
+  <div class="scroll"><table>
+    <thead><tr>
+      <th>market</th><th>side</th><th class="r">notional</th><th class="r">of equity</th>
+      <th class="r">size</th><th class="r">entry</th><th class="r">unrealised</th>
+      <th class="r">liquidation</th><th class="r">funding paid</th>
+    </tr></thead>
+    <tbody id="positions"></tbody>
+  </table></div>
+
+  <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>the panorama</span><em>57 markets, all of them in view at once</em></div>
+  <div class="scroll"><table>
+    <thead><tr>
+      <th>market</th><th class="r">mark</th><th class="r">move</th><th class="r">open interest</th>
+      <th class="r">funding</th><th class="r">basis</th><th class="r">day range</th>
+      <th class="r">max lev</th><th class="r">volume</th><th class="r">brightness</th><th class="r">looming</th>
+    </tr></thead>
+    <tbody id="panorama"></tbody>
+  </table></div>
+</div></section>
+
+<!-- ═══ THE TAPE ═══ -->
+<section id="tape"><div class="wrap">
+  <div class="rule"><span>tape</span><em id="tapeNote">every pass is written down, including the ones that placed nothing</em></div>
+  <div class="scroll"><table>
+    <thead><tr>
+      <th>time</th><th>side</th><th>market</th><th class="r">size</th><th class="r">notional</th>
+      <th class="r">price</th><th>route</th><th>state</th><th>note</th><th></th>
+    </tr></thead>
+    <tbody id="feed"></tbody>
+  </table></div>
+</div></section>
+
+<!-- ═══ THE ANIMAL, IN NUMBERS ═══ -->
+<section id="animal"><div class="wrap">
+  <div class="rule"><span>the animal</span><em id="dataset"></em></div>
+  <div class="facts" id="facts"></div>
+
+  <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>senses</span><em>what reaches it, and what it is wired to</em></div>
+  <div class="scroll"><table>
+    <thead><tr><th>channel</th><th>modality</th><th class="r">neurons</th><th>cell types</th><th>carries</th><th class="r">now</th></tr></thead>
+    <tbody id="senseTable"></tbody>
+  </table></div>
+
+  <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>risk</span><em>the operator's numbers, and the only ones on this page not measured</em></div>
+  <div class="facts" id="limits"></div>
+</div></section>
+
+<footer><div class="wrap">
+  <div class="claims">
+    <p><b>A wiring diagram, not a mind.</b>Every connection is measured from a real animal. Nothing about that makes it conscious, and nothing here is a claim that it is.</p>
+    <p><b>It has not learned anything.</b>There is no training, no fitting, and no memory between passes beyond its heading and the last book it read. The same input gives the same output.</p>
+    <p><b>Escape reads LPLC2.</b>DNp01, the giant fibre, sits at noise on this input. It is published anyway, so anyone can watch it not matter.</p>
+    <p><b>Nothing is tuned to make money.</b>The time constants are Shiu et al.'s, verbatim. Every sense is a rank among the markets, so there is nowhere to put a gain.</p>
+  </div>
+  <p class="attrib" id="attrib"></p>
+</div></footer>
+
 <script>
-const $ = (s) => document.querySelector(s);
-const fmt = (n) => n == null ? '—' : Math.round(n).toLocaleString();
-const usd = (x) => (x < 0 ? '−' : '') + '$' + Math.abs(Number(x) || 0).toLocaleString(undefined,
-  { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const sign = (x) => (x > 0 ? 'up' : x < 0 ? 'down' : 'flat');
+'use strict';
+const $ = (q) => document.querySelector(q);
+const fmt = (n) => Number(n).toLocaleString('en-US');
+const usd = (n, d) => {
+  const a = Math.abs(Number(n) || 0);
+  const dp = d != null ? d : (a >= 1000 ? 0 : 2);
+  return (n < 0 ? '−$' : '$') + a.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+};
+const sgn = (n) => (n > 0 ? 'up' : n < 0 ? 'down' : '');
+const pct = (n, d) => (n * 100).toFixed(d == null ? 1 : d) + '%';
+const clock = (t) => { const d = new Date(t), p = (x) => String(x).padStart(2, '0');
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()); };
 
-let orbit = { labels: [], chosen: null, heading: 0, bands: 72, front: 36 };
-let latest = null, activityUrl = 'activity.bin', bins = 30;
+let bins = 30, latest = null;
 
-/* ── the animal, in three dimensions ─────────────────────────────────────────────────
-   139,600 real cell bodies. Muted here on purpose: it is the identity of the thing, not
-   the point of the page, and it has to sit next to numbers without shouting over them. */
+/* ═══ THE ANIMAL ════════════════════════════════════════════════════════════════════════════════
+   139,600 real cell bodies. Two bytes per neuron arrive each pass — how many times it spiked, and
+   the bin it FIRST spiked in — so the wave plays back in the order it actually happened rather
+   than being animated for effect.
+
+   Lit like a fluorescence image, because that is what this is a picture of. Resting tissue is the
+   dark green of an unstimulated preparation; a cell that has just fired goes yellow-green, and the
+   hardest-firing cells go to yellow, exactly the way a calcium reporter reads out.               */
 const GL = (() => {
   const cv = $('#cloud');
   const gl = cv.getContext('webgl', { alpha: false, antialias: false });
@@ -221,298 +342,421 @@ const GL = (() => {
       float age = tBin - first;
       v = (first > 200.0 || age < 0.0) ? 0.0 : clamp(1.0 - age/fade, 0.0, 1.0);
       amt = clamp(act.x*255.0/70.0, 0.0, 1.0);
-      gl_PointSize = (1.0 + v*2.4) / z * 2.0;
+      gl_PointSize = (1.0 + v*2.6) / z * 2.1;
     }`;
   const FS = `
     precision mediump float; varying float v; varying float amt;
     void main(){
       vec2 d = gl_PointCoord - 0.5;
       if (dot(d,d) > 0.25) discard;
-      vec3 base = vec3(0.28,0.34,0.42);
-      vec3 hot  = mix(vec3(0.62,0.72,0.82), vec3(0.94,0.66,0.17), amt);
-      gl_FragColor = vec4(mix(base, hot, v), 0.20 + v*0.72);
+      vec3 rest = vec3(0.075,0.225,0.055);                       // unstimulated tissue
+      vec3 lit  = mix(vec3(0.42,0.82,0.14), vec3(0.94,0.96,0.28), amt);  // fired -> fired hard
+      gl_FragColor = vec4(mix(rest, lit, v), 0.20 + v*0.74);
     }`;
-  const sh=(t,src)=>{const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);return s;};
+  const sh = (t, src) => { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); return s; };
   const prog = gl.createProgram();
   gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
   gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
   gl.linkProgram(prog); gl.useProgram(prog);
-  const bp=gl.createBuffer(), ba=gl.createBuffer();
-  const aPos=gl.getAttribLocation(prog,'pos'), aAct=gl.getAttribLocation(prog,'act');
-  const U=(n)=>gl.getUniformLocation(prog,n);
-  const u={yaw:U('yaw'),pitch:U('pitch'),tBin:U('tBin'),zoom:U('zoom'),aspect:U('aspect'),fade:U('fade')};
+  const bp = gl.createBuffer(), ba = gl.createBuffer();
+  const aPos = gl.getAttribLocation(prog, 'pos'), aAct = gl.getAttribLocation(prog, 'act');
+  const U = (n) => gl.getUniformLocation(prog, n);
+  const u = { yaw:U('yaw'), pitch:U('pitch'), tBin:U('tBin'), zoom:U('zoom'), aspect:U('aspect'), fade:U('fade') };
   gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE); gl.disable(gl.DEPTH_TEST);
   let count = 0;
   return {
-    setPositions(i16){ count=i16.length/3; gl.bindBuffer(gl.ARRAY_BUFFER,bp);
-      gl.bufferData(gl.ARRAY_BUFFER,i16,gl.STATIC_DRAW);
-      gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,3,gl.SHORT,true,0,0); },
-    setActivity(u8){ gl.bindBuffer(gl.ARRAY_BUFFER,ba);
-      gl.bufferData(gl.ARRAY_BUFFER,u8,gl.DYNAMIC_DRAW);
-      gl.enableVertexAttribArray(aAct); gl.vertexAttribPointer(aAct,2,gl.UNSIGNED_BYTE,true,0,0); },
+    setPositions(i16){ count = i16.length/3; gl.bindBuffer(gl.ARRAY_BUFFER, bp);
+      gl.bufferData(gl.ARRAY_BUFFER, i16, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 3, gl.SHORT, true, 0, 0); },
+    setActivity(u8){ gl.bindBuffer(gl.ARRAY_BUFFER, ba);
+      gl.bufferData(gl.ARRAY_BUFFER, u8, gl.DYNAMIC_DRAW);
+      gl.enableVertexAttribArray(aAct); gl.vertexAttribPointer(aAct, 2, gl.UNSIGNED_BYTE, true, 0, 0); },
     draw(st){
-      const dpr=Math.min(2,window.devicePixelRatio||1), w=cv.clientWidth, h=cv.clientHeight;
-      if(cv.width!==w*dpr||cv.height!==h*dpr){cv.width=w*dpr;cv.height=h*dpr;}
-      gl.viewport(0,0,cv.width,cv.height);
-      gl.clearColor(0.031,0.035,0.043,1); gl.clear(gl.COLOR_BUFFER_BIT);
-      if(!count) return;
-      gl.uniform1f(u.yaw,st.yaw); gl.uniform1f(u.pitch,st.pitch); gl.uniform1f(u.tBin,st.tBin);
-      gl.uniform1f(u.zoom,st.zoom); gl.uniform1f(u.aspect,w/h); gl.uniform1f(u.fade,st.fade);
-      gl.drawArrays(gl.POINTS,0,count);
+      const dpr = Math.min(2, window.devicePixelRatio || 1), w = cv.clientWidth, h = cv.clientHeight;
+      if (cv.width !== w*dpr || cv.height !== h*dpr) { cv.width = w*dpr; cv.height = h*dpr; }
+      gl.viewport(0, 0, cv.width, cv.height);
+      gl.clearColor(0.024, 0.031, 0.039, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+      if (!count) return;
+      gl.uniform1f(u.yaw, st.yaw); gl.uniform1f(u.pitch, st.pitch); gl.uniform1f(u.tBin, st.tBin);
+      gl.uniform1f(u.zoom, st.zoom); gl.uniform1f(u.aspect, w/h); gl.uniform1f(u.fade, st.fade);
+      gl.drawArrays(gl.POINTS, 0, count);
     },
     get count(){ return count; },
   };
 })();
 
-const view = { yaw:0, pitch:0.18, zoom:1.75, tBin:0, fade:7, drag:null };
+const view = { yaw: 0, pitch: 0.13, zoom: 1.62, tBin: 0, fade: 7, drag: null, t: 0, free: false };
+const orbit = { labels: [], bands: 72, front: 36, heading: 0, chosen: null, oiMax: 1 };
+
 if (GL) {
   const cv = $('#cloud');
-  cv.addEventListener('pointerdown',(e)=>{view.drag={x:e.clientX,y:e.clientY,yaw:view.yaw,pitch:view.pitch};cv.setPointerCapture(e.pointerId);});
-  cv.addEventListener('pointermove',(e)=>{ if(!view.drag)return;
-    view.yaw=view.drag.yaw+(e.clientX-view.drag.x)*0.006;
-    view.pitch=Math.max(-1.4,Math.min(1.4,view.drag.pitch+(e.clientY-view.drag.y)*0.006)); });
-  addEventListener('pointerup',()=>{view.drag=null;});
+  cv.addEventListener('pointerdown', (e) => {
+    view.drag = { x: e.clientX, y: e.clientY, yaw: view.yaw, pitch: view.pitch };
+    view.free = true;                       // once turned by hand, it stays where it was put
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!view.drag) return;
+    view.yaw = view.drag.yaw + (e.clientX - view.drag.x) * 0.006;
+    view.pitch = Math.max(-1.4, Math.min(1.4, view.drag.pitch + (e.clientY - view.drag.y) * 0.006));
+  });
+  addEventListener('pointerup', () => { view.drag = null; });
 }
+
 function frame(){
-  if (GL) { if(!view.drag) view.yaw += 0.0011; view.tBin=(view.tBin+0.11)%(bins+9); GL.draw(view); placeOrbit(); }
+  if (GL) {
+    // IT SWAYS, IT DOES NOT SPIN. A full rotation spends most of its time showing the animal from
+    // behind, where it stops reading as a head at all — the two optic lobes are the whole silhouette
+    // and they are only there from the front. So the idle motion is a slow sway either side of
+    // frontal, and anyone who wants to see the back can drag it there, after which it stays where
+    // they put it.
+    if (!view.drag && !view.free) { view.t += 0.0022; view.yaw = Math.sin(view.t) * 0.34; }
+    view.tBin = (view.tBin + 0.11) % (bins + 9);
+    GL.draw(view);
+    placeOrbit();
+  }
   requestAnimationFrame(frame);
 }
-frame();
 
-/* ── the curve: what the account has been worth ──────────────────────────────────── */
-function drawCurve(pts) {
-  const c = $('#curve');
-  if (!c) return;
+/* ═══ THE RING OF MARKETS ════════════════════════════════════════════════════════════════════════
+   Each market sits at the azimuth the fly actually sees it at: its seat, minus where the fly is
+   currently pointed. The one at the front of the ring IS the one being faced, and the ring turns
+   as the fly turns. Under each ticker: its funding in basis points, and its open interest as a
+   bar — how big the crowd standing in that market is.                                            */
+function buildOrbit(s){
+  const host = $('#orbit'); if (!host) return;
+  const rows = s.pass.markets || [];
+  orbit.oiMax = Math.max(1, ...rows.map((m) => m.openInterest || 0));
+  host.innerHTML = rows.map((m) => {
+    const oi = (m.openInterest || 0) / orbit.oiMax;
+    const f = m.funding == null ? '' : (m.funding >= 0 ? '+' : '−') + (Math.abs(m.funding) * 1e4).toFixed(1);
+    return `<div class="mk"><s>${m.symbol}</s><u>${f}</u><q><i style="width:${(oi*100).toFixed(0)}%"></i></q></div>`;
+  }).join('');
+  orbit.labels = [...host.querySelectorAll('.mk')].map((el, k) => ({ el, m: rows[k] }));
+  orbit.bands = s.arena.bands; orbit.front = s.arena.front;
+  orbit.chosen = s.pass.chosen; orbit.heading = s.pass.heading;
+  for (const { el, m } of orbit.labels)
+    el.className = 'mk' + (m.symbol === orbit.chosen ? ' pick' : (m.fall > 0.02 ? ' loom' : ''));
+}
+function placeOrbit(){
+  const host = $('#orbit'); if (!host || !orbit.labels.length) return;
+  const w = host.clientWidth, h = host.clientHeight; if (w < 10) return;
+  const cx = w/2, cy = h/2;
+  const rx = Math.min(w*0.455, 760), ry = Math.min(h*0.44, 380);
+  // 57 markets on one ring is a label every 6.3 degrees, which is closer than the labels are wide —
+  // so they are staggered onto two concentric rings, alternating by seat. Adjacent markets can then
+  // never collide, and the arrangement is fixed by seat rather than by whatever happens to overlap,
+  // so a market does not jump between rings as the fly turns.
+  for (const { el, m } of orbit.labels) {
+    const a = ((m.seat - orbit.heading - orbit.front)/orbit.bands)*Math.PI*2 - Math.PI/2 + view.yaw;
+    const out = (m.seat % 2) ? 1 : 0.855;
+    el.style.left = (cx + Math.cos(a)*rx*out).toFixed(1) + 'px';
+    el.style.top  = (cy + Math.sin(a)*ry*out).toFixed(1) + 'px';
+    // the far side of the ring recedes, so it reads as a ring rather than a list
+    const depth = (Math.sin(a) + 1)/2;
+    el.style.opacity = (0.13 + (0.32 + (m.bright||0)*0.68)*(0.28 + depth*0.6)).toFixed(2);
+  }
+}
+
+/* ═══ THE HERO READOUTS ═════════════════════════════════════════════════════════════════════════ */
+const SENSE_ORDER = ['food','geosmin','cVA','wind','heat','humidity'];
+
+function renderHero(s){
+  const a = s.account || {}, c = s.equityCurve || [], p = s.pass;
+
+  if (a.error || !Number.isFinite(a.equity)) {
+    $('#pnl').textContent = '—'; $('#pnlPct').textContent = '';
+    $('#pnlOf').textContent = a.error || 'no account';
+  } else {
+    const base = c.length ? c[0].v : a.equity;
+    const chg = a.equity - base;
+    $('#pnl').className = 'num ' + sgn(chg);
+    $('#pnl').textContent = (chg >= 0 ? '+' : '−') + usd(Math.abs(chg)).replace('$', '$');
+    $('#pnlPct').className = 'num ' + sgn(chg);
+    $('#pnlPct').textContent = base ? ((chg >= 0 ? '+' : '−') + Math.abs((chg/base)*100).toFixed(2) + '%') : '';
+    $('#pnlOf').textContent = `on ${usd(a.equity)} · ${c.length} pass${c.length === 1 ? '' : 'es'} on record`;
+  }
+
+  $('#senseOf').textContent = p.smelledOf ? '· ' + p.smelledOf : '';
+  const sm = p.smelled || {};
+  $('#senses').innerHTML = SENSE_ORDER.map((k) => {
+    const v = Number(sm[k]) || 0;
+    return `<div class="s ${v > 0.5 ? 'hot' : ''}"><em>${k}</em>
+      <div class="t"><i style="width:${(v*100).toFixed(0)}%"></i></div>
+      <b>${(v*100).toFixed(0)}</b></div>`;
+  }).join('');
+
+  const act = (p.action || '').toUpperCase();
+  const dir = p.action === 'long' ? 'up' : (p.action === 'short' || p.action === 'escape') ? 'down' : '';
+  $('#verdict').className = 'num ' + dir;
+  $('#verdict').innerHTML = p.action === 'hold'
+    ? '<b>HOLD</b>'
+    : `<b>${act}</b> ${pct(p.size || 0, 0)}${p.chosen ? ' <span class="flyc">' + p.chosen + '</span>' : ''}`;
+  $('#why').textContent = p.why || '';
+
+  const rows = [['escape','LPLC2'],['feed','MN9'],['retreat','MDN'],['freeze','DNp09'],['steer','DNa02']];
+  const max = Math.max(...rows.map(([k]) => (p.rates[k] || {}).hz || 0), 1);
+  $('#drives').innerHTML = rows.map(([k,t]) => {
+    const r = p.rates[k] || { hz: 0 };
+    return `<div class="d ${r.hz > 0 ? 'on' : ''}"><em>${t}</em>
+      <div class="t"><i style="width:${Math.min(100,(r.hz/max)*100).toFixed(0)}%"></i></div>
+      <b>${r.hz.toFixed(0)}Hz</b></div>`;
+  }).join('');
+
+  const m = p.mood || {};
+  $('#facing').innerHTML =
+    `heading <b>${Number(p.heading || 0).toFixed(1)}</b> of ${s.arena.bands} bands<br>` +
+    `appetite <b>${pct(m.appetite || 0, 0)}</b> · patience <b>${pct(m.patience || 0, 0)}</b><br>` +
+    `<b>${fmt(p.fired)}</b> of ${fmt(s.brain.neurons)} neurons fired`;
+}
+
+/* ═══ EQUITY ════════════════════════════════════════════════════════════════════════════════════ */
+function renderAum(s){
+  const a = s.account || {}, c = s.equityCurve || [], L = s.trade.limits || {};
+  $('#equity').textContent = Number.isFinite(a.equity) ? usd(a.equity) : '—';
+  $('#aumSide').innerHTML = [
+    [usd(a.unrealized || 0), 'unrealised', sgn(a.unrealized)],
+    [usd(a.exposure || 0), 'notional at work'],
+    [pct(a.utilisation || 0, 0), 'of equity deployed'],
+    [(a.positions || []).length + ' / ' + (L.slots || 1), 'slots filled'],
+    [(L.leverage || 1) + '×', 'leverage'],
+  ].map(([v,k,cl]) => `<div><b class="num ${cl||''}">${v}</b><span class="lbl">${k}</span></div>`).join('');
+  if (c.length > 1) {
+    const span = (c[c.length-1].t - c[0].t)/3600e3;
+    $('#curveSpan').textContent = span < 1 ? `${Math.round(span*60)} minutes` : `${span.toFixed(1)} hours`;
+  }
+  drawCurve(c);
+}
+
+function drawCurve(pts){
+  const c = $('#curve'); if (!c) return;
   if (c.clientWidth < 10) { requestAnimationFrame(() => drawCurve(pts)); return; }
   const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const W = c.clientWidth, H = 300;
+  const W = c.clientWidth, H = c.clientHeight || 340;
   c.width = W*dpr; c.height = H*dpr;
-  const x = c.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0);
-  x.clearRect(0,0,W,H);
+  const x = c.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,W,H);
 
-  const PAD_R = 66, PAD_B = 22, PAD_T = 14;
+  const PR = 74, PB = 26, PT = 18;
   if (!pts || pts.length < 2) {
-    x.fillStyle = '#5a6067'; x.font = '12px ui-monospace,monospace';
+    x.fillStyle = '#4d535b'; x.font = '11px ui-monospace,monospace';
     x.fillText(pts && pts.length === 1 ? 'one point so far — the curve needs a second pass' : 'no history yet', 0, H/2);
-    $('#cFrom').textContent = ''; $('#cTo').textContent = '';
-    return;
+    $('#cFrom').textContent = ''; $('#cTo').textContent = ''; return;
   }
-  const vals = pts.map(p=>p.v);
+  const vals = pts.map((p) => p.v);
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  // A perfectly flat series has no range to scale to. Inventing one and then filling the area under
-  // it paints half the panel a solid colour and reads as a chart that is doing something, which it
-  // is not: the account simply has not moved.
-  const flat = (hi - lo) < 1e-9;
-  if (flat) { hi = hi * 1.0006 + 0.01; lo = lo * 0.9994 - 0.01; }
-  const pad = (hi-lo)*0.14; lo -= pad; hi += pad;
-  const plotW = W - PAD_R, plotH = H - PAD_B - PAD_T;
-  const px = (i)=> (i/(pts.length-1))*plotW;
-  const py = (v)=> PAD_T + (1-(v-lo)/(hi-lo))*plotH;
+  if (hi - lo < 1e-9) { hi = lo + Math.max(1, lo*0.01); lo -= Math.max(1, lo*0.01); }
+  const pad = (hi - lo)*0.12; lo -= pad; hi += pad;
+  const X = (i) => (i/(pts.length-1))*(W-PR);
+  const Y = (v) => PT + (1 - (v-lo)/(hi-lo))*(H-PT-PB);
 
-  // horizontal grid + right-hand scale: four lines, quietly
   x.font = '10px ui-monospace,monospace'; x.textBaseline = 'middle';
-  for (let k=0;k<=4;k++){
-    const v = lo + (hi-lo)*k/4, y = py(v);
-    x.strokeStyle = '#16181c'; x.lineWidth = 1;
-    x.beginPath(); x.moveTo(0,Math.round(y)+.5); x.lineTo(plotW,Math.round(y)+.5); x.stroke();
-    x.fillStyle = '#5a6067';
-    x.fillText('$' + v.toFixed(2), plotW + 10, y);
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + (hi-lo)*(k/4), y = Y(v);
+    x.strokeStyle = '#161a1f'; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(0, Math.round(y)+0.5); x.lineTo(W-PR, Math.round(y)+0.5); x.stroke();
+    x.fillStyle = '#4d535b'; x.textAlign = 'left';
+    x.fillText(usd(v, v >= 1000 ? 0 : 2), W-PR+10, y);
   }
 
   const first = vals[0], last = vals[vals.length-1];
-  const rising = last >= first;
-  const col = rising ? '63,185,80' : '248,81,73';
+  const col = last >= first ? '#35b667' : '#e0504a';
 
-  // the opening level, so the whole shape is read against where it started
-  x.setLineDash([2,4]); x.strokeStyle='#2a2e35'; x.lineWidth=1;
-  x.beginPath(); x.moveTo(0,py(first)); x.lineTo(plotW,py(first)); x.stroke(); x.setLineDash([]);
+  // the baseline it started from, so the shape above and below it means something
+  const y0 = Y(first);
+  x.strokeStyle = '#232830'; x.setLineDash([2,3]); x.lineWidth = 1;
+  x.beginPath(); x.moveTo(0, Math.round(y0)+0.5); x.lineTo(W-PR, Math.round(y0)+0.5); x.stroke();
+  x.setLineDash([]);
 
-  x.beginPath();
-  pts.forEach((p,i)=> i ? x.lineTo(px(i),py(p.v)) : x.moveTo(px(i),py(p.v)));
-  x.lineTo(px(pts.length-1), H-PAD_B); x.lineTo(0, H-PAD_B); x.closePath();
-  const g = x.createLinearGradient(0,PAD_T,0,H-PAD_B);
-  g.addColorStop(0,`rgba(${col},${flat ? 0.03 : 0.13})`); g.addColorStop(1,`rgba(${col},0)`);
-  x.fillStyle = g; x.fill();
+  x.beginPath(); x.moveTo(X(0), Y(vals[0]));
+  for (let i = 1; i < pts.length; i++) x.lineTo(X(i), Y(vals[i]));
+  x.lineTo(X(pts.length-1), y0); x.lineTo(X(0), y0); x.closePath();
+  x.fillStyle = col + '16'; x.fill();
 
-  x.beginPath();
-  pts.forEach((p,i)=> i ? x.lineTo(px(i),py(p.v)) : x.moveTo(px(i),py(p.v)));
-  x.strokeStyle = flat ? '#5a6067' : `rgb(${col})`; x.lineWidth = 1.5; x.lineJoin='round'; x.stroke();
+  x.beginPath(); x.moveTo(X(0), Y(vals[0]));
+  for (let i = 1; i < pts.length; i++) x.lineTo(X(i), Y(vals[i]));
+  x.strokeStyle = col; x.lineWidth = 1.5; x.lineJoin = 'round'; x.stroke();
 
-  x.beginPath(); x.arc(px(pts.length-1), py(last), 2.5, 0, 7);
-  x.fillStyle = flat ? '#5a6067' : `rgb(${col})`; x.fill();
-  if (flat) {
-    x.fillStyle = '#5a6067'; x.font = '11px ui-monospace,monospace'; x.textBaseline = 'alphabetic';
-    x.fillText('unchanged — nothing has traded yet', 4, py(last) - 12);
+  const lx = X(pts.length-1), ly = Y(last);
+  x.beginPath(); x.arc(lx, ly, 2.5, 0, Math.PI*2); x.fillStyle = col; x.fill();
+
+  const d = (t) => new Date(t).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false });
+  $('#cFrom').textContent = d(pts[0].t) + ' · ' + usd(first);
+  $('#cTo').textContent = d(pts[pts.length-1].t) + ' · ' + usd(last);
+}
+
+/* ═══ TABLES ════════════════════════════════════════════════════════════════════════════════════ */
+function renderPositions(s){
+  const a = s.account || {}, L = s.trade.limits || {};
+  const ps = (a.positions || []).slice().sort((x, z) => Math.abs(z.notional) - Math.abs(x.notional));
+  const tb = $('#positions');
+  if (!ps.length) {
+    tb.innerHTML = `<tr><td colspan="9" style="color:var(--faint);padding:16px 0">flat — nothing open</td></tr>`;
+    $('#bookNote').textContent = `0 of ${L.slots || 1} slots`;
+    return;
   }
-
-  const when = (t)=> new Date(t).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-  $('#cFrom').textContent = when(pts[0].t);
-  $('#cTo').textContent = when(pts[pts.length-1].t) + '  ·  ' + pts.length + ' passes';
+  $('#bookNote').textContent = `${ps.length} of ${L.slots || 1} slots · ${usd(a.exposure)} notional on ${usd(a.equity)}`;
+  tb.innerHTML = ps.map((p) => `<tr>
+      <td class="k"><span class="sym">${p.symbol}</span></td>
+      <td class="${p.sign > 0 ? 'up' : 'down'}">${p.sign > 0 ? 'LONG' : 'SHORT'}</td>
+      <td class="r k">${usd(Math.abs(p.notional))}</td>
+      <td class="r">${a.equity ? pct(Math.abs(p.notional)/a.equity, 0) : ''}</td>
+      <td class="r">${Number(p.size).toLocaleString('en-US',{maximumFractionDigits:4})}</td>
+      <td class="r">${Number(p.entry).toPrecision(6)}</td>
+      <td class="r ${sgn(p.unrealized)}">${usd(p.unrealized)}</td>
+      <td class="r">${p.liquidation ? Number(p.liquidation).toPrecision(6) : '—'}</td>
+      <td class="r ${sgn(-(p.funding||0))}">${p.funding != null ? usd(-p.funding) : '—'}</td>
+    </tr>`).join('');
 }
 
-/* ── positions, biggest first ─────────────────────────────────────────────────────── */
-function renderPositions(s) {
-  const a = s.account || {};
-  const host = $('#positions');
-  if (a.error) { host.innerHTML = `<div class="empty">${a.error}</div>`; $('#posCount').textContent=''; return; }
-  const ps = (a.positions || []).slice().sort((p,q)=>Math.abs(q.notional)-Math.abs(p.notional));
-  $('#posCount').textContent = ps.length ? `${ps.length} open · ${usd(a.exposure)} at work` : '';
-  if (!ps.length) { host.innerHTML = `<div class="empty">no open positions</div>`; return; }
-  const biggest = Math.abs(ps[0].notional) || 1;
-  host.innerHTML = ps.map((p)=>{
-    const w = Math.max(2, (Math.abs(p.notional)/biggest)*100);
-    return `<div class="p">
-      <div><div class="sym">${p.symbol}</div><div class="sd">${p.side}</div></div>
-      <div class="bar ${p.side}"><i style="width:${w}%"></i></div>
-      <div class="n">${usd(Math.abs(p.notional))}</div>
-      <div class="pl ${sign(p.unrealized)}">${p.unrealized>=0?'+':''}${usd(p.unrealized)}</div>
-    </div>`;
-  }).join('');
-}
-
-/* ── the fly's current call ───────────────────────────────────────────────────────── */
-function renderFly(s) {
-  const p = s.pass;
-  const act = p.action;
-  const cls = act==='long'?'up':(act==='short'||act==='escape')?'down':'flat';
-  $('#verdict').innerHTML = `<span class="act ${cls}">${act.toUpperCase()}</span>` +
-    (act==='hold'?'':` <span class="act ${cls}">${(p.size*100).toFixed(0)}%</span>`) +
-    (p.chosen?` <span class="sym">${p.chosen}</span>`:'');
-  $('#why').textContent = p.why;
-
-  const rows = [['escape','LPLC2'],['feed','MN9'],['retreat','MDN'],['freeze','DNp09'],['steer','DNa02']];
-  const max = Math.max(...rows.map(([k])=>p.rates[k].hz), 1);
-  $('#drives').innerHTML = rows.map(([k,t])=>{
-    const r = p.rates[k], w = Math.max(0,Math.min(100,(r.hz/max)*100));
-    return `<div class="dr ${r.hz>0?'on':''}"><span>${t}</span>
-      <div class="t"><i style="width:${w}%"></i></div>
-      <div class="hz">${r.hz.toFixed(0)}Hz</div></div>`;
-  }).join('');
-
-  const b = s.brain;
-  $('#figL').innerHTML = `<b>${fmt(b.placedNeurons)}</b> cell bodies · <b>${fmt(p.fired)}</b> fired this pass`;
-}
-
-/* ── the ring of markets around the animal ────────────────────────────────────────── */
-function buildOrbit(s) {
-  const host = $('#orbit'); if (!host) return;
-  const rows = s.pass.markets || [];
-  host.innerHTML = rows.map((m)=>`<i>${m.symbol}</i>`).join('');
-  orbit.labels = [...host.querySelectorAll('i')].map((el,k)=>({el,m:rows[k]}));
-  orbit.bands = s.arena.bands; orbit.front = s.arena.front;
-  orbit.chosen = s.pass.chosen; orbit.heading = s.pass.heading;
-  for (const {el,m} of orbit.labels)
-    el.className = m.symbol===orbit.chosen ? 'pick' : (m.fall>0.02 ? 'loom' : '');
-}
-function placeOrbit() {
-  const host = $('#orbit'); if (!host || !orbit.labels.length) return;
-  const w = host.clientWidth, h = host.clientHeight; if (w < 10) return;
-  const cx=w/2, cy=h/2, rx=Math.min(w*0.44,470), ry=Math.min(h*0.40,120);
-  for (const {el,m} of orbit.labels) {
-    const a = ((m.seat - orbit.heading - orbit.front)/orbit.bands)*Math.PI*2 - Math.PI/2 + view.yaw;
-    el.style.left = (cx + Math.cos(a)*rx).toFixed(1)+'px';
-    el.style.top  = (cy + Math.sin(a)*ry*0.8).toFixed(1)+'px';
-    const depth = (Math.sin(a)+1)/2;
-    el.style.opacity = (0.13 + (0.3 + m.bright*0.7)*(0.35+depth*0.5)).toFixed(2);
-  }
-}
-
-/* ── the tape ─────────────────────────────────────────────────────────────────────── */
-function renderFeed(s) {
-  const rows = (s.feed || []).slice().sort((a,z)=>z.at-a.at).slice(0,100);
-  const tb = $('#feed');
-  if (!rows.length) { tb.innerHTML = `<tr><td colspan="10" style="color:var(--faint);padding:14px 0">nothing yet — a line is written every pass</td></tr>`; return; }
-  tb.innerHTML = rows.map((f)=>{
-    const d = new Date(f.at);
-    const t = String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
-    const px = f.fillPrice ?? f.limitPrice ?? f.mark;
+function renderPanorama(s){
+  const rows = (s.pass.markets || []).slice().sort((a, z) => (z.openInterest||0) - (a.openInterest||0));
+  $('#panorama').innerHTML = rows.map((m) => {
+    const basis = m.index > 0 ? (m.mark - m.index)/m.index : null;
+    const range = m.high > 0 && m.low > 0 && m.mark > 0 ? (m.high - m.low)/m.mark : null;
+    const chosen = m.symbol === s.pass.chosen;
     return `<tr>
-      <td>${t}</td>
-      <td class="${f.side||''}">${(f.side||f.action||'—').toUpperCase()}</td>
-      <td><span class="sym">${f.symbol||'—'}</span></td>
-      <td class="r">${f.sizeBase!=null?Number(f.sizeBase).toLocaleString(undefined,{maximumFractionDigits:4}):''}</td>
-      <td class="r">${f.notional!=null?usd(f.notional):''}</td>
-      <td class="r">${px!=null?Number(px).toPrecision(6):''}</td>
-      <td>${f.execution==='post-only'?'rest':f.execution==='market'?'cross':''}</td>
-      <td><span class="st ${f.status}">${f.status}</span></td>
-      <td style="color:var(--faint)">${f.note||''}</td>
-      <td>${f.verify?`<a href="${f.verify}" target="_blank" rel="noopener">verify</a>`:''}</td>
+      <td class="k"><span class="sym" style="${chosen ? 'color:var(--fly)' : ''}">${m.symbol}</span></td>
+      <td class="r k">${Number(m.mark).toPrecision(6)}</td>
+      <td class="r ${sgn(m.moved)}">${m.moved != null ? (m.moved >= 0 ? '+' : '−') + Math.abs(m.moved*100).toFixed(2) + '%' : '—'}</td>
+      <td class="r k">${m.openInterest != null ? usd(m.openInterest, 0) : '—'}</td>
+      <td class="r ${sgn(m.funding)}">${m.funding != null ? (m.funding >= 0 ? '+' : '−') + (Math.abs(m.funding)*1e4).toFixed(1) + 'bp' : '—'}</td>
+      <td class="r">${basis != null ? (basis >= 0 ? '+' : '−') + (Math.abs(basis)*1e4).toFixed(1) + 'bp' : '—'}</td>
+      <td class="r">${range != null ? pct(range, 1) : '—'}</td>
+      <td class="r">${m.maxLeverage ? Math.round(m.maxLeverage) + '×' : '—'}</td>
+      <td class="r">${usd(m.volume, 0)}</td>
+      <td class="r"><span class="bar"><i style="width:${((m.bright||0)*100).toFixed(0)}%"></i></span></td>
+      <td class="r ${m.fall > 0.02 ? 'down' : ''}">${m.fall > 0 ? pct(m.fall, 0) : '—'}</td>
     </tr>`;
   }).join('');
-  $('#tapeNote').textContent = s.trade ? (s.trade.live ? 'live · armed' : 'live trading disarmed') : '';
 }
 
-/* ── head ─────────────────────────────────────────────────────────────────────────── */
-function renderHead(s) {
-  const a = s.account || {}, c = s.equityCurve || [];
-  if (a.error || !Number.isFinite(a.equity)) {
-    $('#value').textContent = '—';
-    $('#dAbs').textContent = ''; $('#dLabel').textContent = a.error || 'no account';
-    $('#stats').innerHTML = ''; return;
+function renderFeed(s){
+  const rows = (s.feed || []).slice().sort((a, z) => z.at - a.at).slice(0, 120);
+  const tb = $('#feed');
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="10" style="color:var(--faint);padding:16px 0">nothing yet — a line is written every pass</td></tr>`;
+    return;
   }
-  $('#value').textContent = usd(a.equity);
-  const base = c.length ? c[0].v : a.equity;
-  const chg = a.equity - base, pct = base ? (chg/base)*100 : 0;
-  $('#dAbs').className = 'd1 ' + sign(chg);
-  $('#dAbs').textContent = `${chg>=0?'+':'−'}${usd(Math.abs(chg)).replace('$','$')}  ${chg>=0?'+':'−'}${Math.abs(pct).toFixed(2)}%`;
-  $('#dLabel').textContent = c.length>1 ? `over ${c.length} passes` : 'since the first pass';
-
-  const p = s.pass;
-  $('#stats').innerHTML = [
-    [usd(a.unrealized), 'unrealised', sign(a.unrealized)],
-    [usd(a.exposure), 'exposure'],
-    [((a.utilisation||0)*100).toFixed(0)+'%', 'of equity at work'],
-    [String(a.positions.length), 'positions'],
-    [p.chosen || '—', 'facing'],
-  ].map(([v,k,cl])=>`<div><b class="${cl||''}">${v}</b><span>${k}</span></div>`).join('');
+  tb.innerHTML = rows.map((f) => {
+    const px = f.fillPrice != null ? f.fillPrice : (f.limitPrice != null ? f.limitPrice : f.mark);
+    return `<tr>
+      <td>${clock(f.at)}</td>
+      <td class="${f.side === 'buy' ? 'up' : f.side === 'sell' ? 'down' : ''}">${(f.side || f.action || '—').toUpperCase()}</td>
+      <td class="k"><span class="sym">${f.symbol || '—'}</span></td>
+      <td class="r">${f.sizeBase != null ? Number(f.sizeBase).toLocaleString('en-US',{maximumFractionDigits:4}) : ''}</td>
+      <td class="r k">${f.notional != null ? usd(f.notional) : ''}</td>
+      <td class="r">${px != null ? Number(px).toPrecision(6) : ''}</td>
+      <td>${f.execution === 'post-only' ? 'rest' : f.execution === 'market' ? 'cross' : ''}</td>
+      <td><span class="st ${f.status}">${f.status}</span></td>
+      <td style="color:var(--faint)">${f.note || ''}</td>
+      <td>${f.verify ? `<a href="${f.verify}" target="_blank" rel="noopener">verify</a>` : ''}</td>
+    </tr>`;
+  }).join('');
+  $('#tapeNote').textContent = (s.trade && s.trade.live ? 'armed' : 'live trading disarmed')
+    + ' · every pass written down, including the ones that placed nothing';
 }
 
-/* ── data ─────────────────────────────────────────────────────────────────────────── */
-let last = 0, cloudLoaded = false;
+function renderAnimal(s){
+  const b = s.brain, t = s.totals || {}, p = s.pass;
+  $('#dataset').textContent = b.dataset;
+  $('#facts').innerHTML = [
+    [fmt(b.neurons), 'neurons'],
+    [fmt(b.edges), 'connections'],
+    [fmt(b.synapses), 'synapses'],
+    [fmt(b.distinctTypes), 'cell types'],
+    [fmt(b.excitatory), 'excitatory'],
+    [fmt(b.inhibitory), 'inhibitory'],
+    [fmt(b.columns), 'retinotopic columns'],
+    [fmt(s.arena.inputNeurons), 'medulla inputs'],
+    [fmt(t.passes || 0), 'passes so far'],
+    [((t.flyMs || 0)/1000).toFixed(0) + 's', 'of fly time lived'],
+    [((t.cpuMs || 0)/3600e3).toFixed(1) + 'h', 'of cpu spent'],
+    [fmt(p.fired), 'fired this pass'],
+  ].map(([v,k]) => `<div><b class="num">${v}</b><span class="lbl">${k}</span></div>`).join('');
+
+  const sm = p.smelled || {};
+  $('#senseTable').innerHTML = (s.senses || []).map((c) => {
+    const v = Number(sm[c.id]) || 0;
+    return `<tr>
+      <td class="k">${c.id}</td>
+      <td>${c.sense}</td>
+      <td class="r k">${fmt(c.neurons)}</td>
+      <td style="color:var(--faint)">${(c.types || []).join(' ')}</td>
+      <td class="wrap">${c.carries}</td>
+      <td class="r ${v > 0.5 ? 'k' : ''}">${(v*100).toFixed(0)}</td>
+    </tr>`;
+  }).join('');
+
+  const L = s.trade.limits || {};
+  $('#limits').innerHTML = [
+    [(L.slots || 1) + ' × ' + (L.leverage || 1) + '×', 'margin slots, levered'],
+    [pct(L.maxFraction || 0, 0), 'ceiling on one position'],
+    [(L.maxTotalFraction || 0) + '×', 'ceiling on the sum'],
+    [pct(L.depthFraction || 0, 0), 'of the thin side of the book'],
+    [(L.takerMaxBps || 0) + 'bp', 'above which it rests instead'],
+    [pct(L.deadbandFraction || 0, 0), 'deadband before re-targeting'],
+    [(L.staleAfterMinutes || 0) + 'm', 'before an untouched position closes'],
+    [usd(s.trade.maxNotionalUsd || 0, 0), 'hard cap inside the signer'],
+  ].map(([v,k]) => `<div><b class="num">${v}</b><span class="lbl">${k}</span></div>`).join('');
+
+  $('#attrib').innerHTML =
+    `Connectome: ${b.attribution} Synapses thresholded at weight &ge; ${b.minWeight}. ` +
+    `Membrane and synaptic constants from Shiu et al. (2024), used verbatim and never tuned. ` +
+    `Sensory channels are normalised across the whole market population, after the divisive ` +
+    `normalisation the antennal lobe performs (Olsen &amp; Wilson 2008). ` +
+    `Account <a href="${(s.account||{}).verify || '#'}" target="_blank" rel="noopener">${(s.account||{}).index}</a> ` +
+    `on Lighter, readable by anyone without trusting this page.`;
+}
+
+/* ═══ DATA ══════════════════════════════════════════════════════════════════════════════════════ */
+let cloudLoaded = false, lastAt = 0;
 async function loadCloud(){
   if (cloudLoaded || !GL) return;
-  try { const r = await fetch('cloud-xyz.bin'); if(!r.ok) throw 0;
-    GL.setPositions(new Int16Array(await r.arrayBuffer())); cloudLoaded = true; } catch(e){}
+  try {
+    const r = await fetch('cloud-xyz.bin');
+    if (!r.ok) throw new Error('no cloud');
+    GL.setPositions(new Int16Array(await r.arrayBuffer()));
+    cloudLoaded = true;
+  } catch (e) { /* the page still works without the animal drawn */ }
 }
 function age(s){
-  const secs = Math.round((Date.now()-s.pass.at)/1000);
-  $('#live').classList.toggle('stale', secs>420);
-  $('#liveText').textContent = secs<90 ? `live · ${secs}s ago` : `last pass ${Math.round(secs/60)}m ago`;
+  const secs = Math.round((Date.now() - s.pass.at)/1000);
+  $('#live').classList.toggle('stale', secs > 420);
+  $('#liveText').textContent = secs < 90 ? `live · ${secs}s ago` : `last pass ${Math.round(secs/60)}m ago`;
 }
 async function tick(){
   let s;
   try {
-    let r = await fetch('/api/stats?t='+Date.now(),{cache:'no-store'}).catch(()=>null);
-    if (!r || !r.ok) r = await fetch('stats.json?t='+Date.now(),{cache:'no-store'});
-    if (!r.ok) throw new Error('HTTP '+r.status);
+    let r = await fetch('/api/stats?t=' + Date.now(), { cache:'no-store' }).catch(() => null);
+    if (!r || !r.ok) r = await fetch('stats.json?t=' + Date.now(), { cache:'no-store' });
     s = await r.json();
-    if (s.activityUrl) activityUrl = s.activityUrl;
-  } catch(e){
-    $('#live').classList.add('stale'); $('#liveText').textContent='no data'; return;
+  } catch (e) { $('#liveText').textContent = 'cannot reach the keeper'; return; }
+
+  latest = s;
+  bins = (s.pass.raster && s.pass.raster.bins) || 30;
+  $('#verify').href = (s.account || {}).verify || '#';
+  const live = s.trade && s.trade.live;
+  $('#armchip').className = 'armchip' + (live ? ' live' : '');
+  $('#armchip').textContent = live ? 'armed' : 'disarmed';
+
+  renderHero(s); renderAum(s); renderPositions(s); renderPanorama(s); renderFeed(s); renderAnimal(s);
+  buildOrbit(s); age(s);
+
+  if (s.pass.at !== lastAt) {
+    lastAt = s.pass.at;
+    try {
+      const r = await fetch('activity.bin?t=' + s.pass.at, { cache:'no-store' });
+      if (r.ok && GL) GL.setActivity(new Uint8Array(await r.arrayBuffer()));
+    } catch (e) { /* the cloud simply stays unlit this pass */ }
   }
-  await loadCloud();
-  if (s.pass.at !== last) {
-    last = s.pass.at; latest = s; bins = s.pass.bins || 30;
-    renderHead(s); drawCurve(s.equityCurve); renderPositions(s); renderFly(s); buildOrbit(s); renderFeed(s);
-    const b = s.brain;
-    $('#foot').innerHTML =
-      `<p><b>This is a wiring diagram, not a mind.</b> ${fmt(b.neurons)} neurons and ${fmt(b.edges)} connections
-       from a real animal, simulated with published constants. It is not conscious, it does not know what money is,
-       and it has not learned anything — a connectome is one frozen snapshot of synaptic weights, so the fly reacts
-       to what is in front of it and nothing more.</p>
-      <p>Connections below ${b.minWeight} synapses are dropped, where reconstruction error concentrates.
-       Escape is read from <b>LPLC2</b> rather than the giant fiber, which never leaves noise on this input and is
-       published anyway: <b>${s.pass.rates.giantFiber.spikes}</b> spikes this pass. Same seed, same market, same
-       spikes — this pass was seed <b>${s.pass.seed}</b>.</p>
-      <p>${b.dataset} — ${b.attribution} Dynamics after Shiu et al. (2024).
-       Every position and every fill is public: the figures above are read from the exchange, not asserted here.</p>`;
-    try { const r = await fetch(activityUrl+'?t='+s.pass.at,{cache:'no-store'});
-      if (r.ok && GL) GL.setActivity(new Uint8Array(await r.arrayBuffer())); } catch(e){}
-  }
-  age(s);
 }
-let rt; addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{ if(latest){drawCurve(latest.equityCurve);} },140);});
-tick(); setInterval(tick, 4000);
+
+frame();
+loadCloud();
+tick();
+setInterval(tick, 15000);
+setInterval(() => { if (latest) age(latest); }, 1000);
+addEventListener('resize', () => { if (latest) drawCurve(latest.equityCurve || []); });
 </script>
 </body>
 </html>
