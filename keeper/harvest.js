@@ -390,9 +390,16 @@ async function loop() {
           rpcUrls: { default: { http: [cur.chain.rpc] } },
         });
         const pc2 = createPublicClient({ chain, transport: http(cur.chain.rpc) });
+        // THE WALLET THAT LAUNCHES AND THE WALLET THAT IS PAID NEED NOT BE THE SAME ONE, and the
+        // event is indexed by the LAUNCHER. Scanning by the fee wallet finds nothing when someone
+        // else signed the launch -- which is the normal case if the fee wallet is a fresh key that
+        // never touches a browser. So the scan uses launch.launchedBy when the operator has named
+        // it, and the fee wallet otherwise; either way the recipient check below is what actually
+        // decides whether these fees are ours.
         const me = (cur.feeWallet && cur.feeWallet.address) || '';
-        const found = /^0x[0-9a-fA-F]{40}$/.test(me) && !/^0x0+$/.test(me)
-          ? await findLaunch(pc2, cur.pons.factory, me).catch(() => null)
+        const by = ((cur.launch && cur.launch.launchedBy) || me) || '';
+        const found = /^0x[0-9a-fA-F]{40}$/.test(by) && !/^0x0+$/.test(by)
+          ? await findLaunch(pc2, cur.pons.factory, by).catch(() => null)
           : null;
         if (found && found.feeRecipient.toLowerCase() === me.toLowerCase()) {
           log(`\nLAUNCH FOUND at block ${found.launchBlock}`);
@@ -406,7 +413,8 @@ async function loop() {
           log(`found a launch by this wallet whose fees pay ${found.feeRecipient} — not us. Ignoring.`);
         }
         if (Date.now() - lastIdle >= 300000) {
-          log('watching for a launch by ' + me + ' — gas float untouched');
+          log(`watching for a launch by ${by}` +
+            (by.toLowerCase() === me.toLowerCase() ? '' : ` paying ${me}`) + ' — gas float untouched');
           lastIdle = Date.now();
         }
         await sleep(checkMs);

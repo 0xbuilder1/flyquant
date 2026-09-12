@@ -77,7 +77,9 @@
     "buybackEnabled": false,
     "configId": 0,
     "saltSeed": "flybrain-mainnet-001",
-    "_symbolNote": "name and symbol are IMMUTABLE ONCE LAUNCHED. The project is FLYQUANT; the ticker is still FLY. Change symbol here BEFORE launching if you want $FLYQUANT instead -- it cannot be edited after."
+    "_symbolNote": "name and symbol are IMMUTABLE ONCE LAUNCHED. The project is FLYQUANT; the ticker is still FLY. Change symbol here BEFORE launching if you want $FLYQUANT instead -- it cannot be edited after.",
+    "launchedBy": "",
+    "_launchedByNote": "THE WALLET THAT SIGNS THE LAUNCH, when it is not the fee wallet. PONS indexes TokenLaunched by the LAUNCHER, so the harvester's watcher scans by this address -- but harvesting is gated on the RECIPIENT, so it then confirms the launch actually pays feeWallet.address before wiring anything in. Leave it empty and the watcher scans by the fee wallet, which is right when the same key does both."
   },
   "token": {
     "token": "0x0000000000000000000000000000000000000000",
