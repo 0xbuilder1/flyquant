@@ -182,6 +182,29 @@ async function main() {
       });
       return { equity, n: acct.positions.length, exposure: acct.exposure, margin: marginOf(acct) };
     });
+
+    // PUBLISHED, because the site may only show numbers the keeper produced. The page cannot compute
+    // this for itself — a page that can compute its own figures will eventually compute a flattering
+    // one — so it reads this file or shows nothing at all.
+    try {
+      const out = {
+        at: Date.now(),
+        passes: decisions.length,
+        ms,
+        slots: exposure.slots,
+        leverage: exposure.leverage,
+        rows: rows.map((r) => ({
+          equity: r.equity,
+          positions: r.n,
+          notional: Math.round(r.exposure * 100) / 100,
+          leverage: Math.round((r.exposure / r.equity) * 100) / 100,
+          marginFraction: Math.round((r.margin / r.equity) * 1000) / 1000,
+        })),
+      };
+      require('fs').writeFileSync(path.join(__dirname, '..', 'site', 'scaling.json'),
+        JSON.stringify(out, null, 1));
+      console.log('\n  written to site/scaling.json');
+    } catch (e) { console.error('  could not publish the scaling table:', e.message); }
     console.log('    equity        positions      notional      × equity     margin used');
     for (const r of rows) {
       console.log(`    ${usd(r.equity).padStart(11)}  ${String(r.n).padStart(11)}  ` +

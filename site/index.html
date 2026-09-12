@@ -163,6 +163,9 @@ td.k{color:var(--ink)}
 .st{font-size:10px;letter-spacing:.08em;text-transform:uppercase}
 .st.sent,.st.filled{color:var(--up)} .st.refused,.st.rejected{color:var(--down)} .st.dry{color:var(--faint)}
 .scroll{overflow-x:auto}
+/* one paragraph of prose per section, to say what the numbers under it are */
+.lede{font:400 13px/1.75 var(--sans);color:var(--dim);max-width:74ch;margin:0 0 22px}
+.lede em{color:var(--ink);font-style:italic}
 
 /* borders on the cells, not a coloured gap behind them — an incomplete last row would otherwise
    leave the gap colour showing as blocks of nothing */
@@ -191,8 +194,9 @@ footer{border-top:1px solid var(--line);margin-top:clamp(44px,6vw,86px);padding:
   <div class="mark">FLY<i>QUANT</i></div>
   <div class="pulse" id="live"><b></b><span id="liveText">connecting</span></div>
   <nav>
-    <a href="#aum">equity</a><a href="#book">book</a><a href="#tape">tape</a><a href="#animal">animal</a>
-    <a id="verify" href="#" target="_blank" rel="noopener">account</a>
+    <a href="#account">account</a><a href="#animal">animal</a><a href="#desk">desk</a>
+    <a href="#markets">markets</a><a href="#tape">tape</a>
+    <a id="verify" href="#" target="_blank" rel="noopener">verify</a>
   </nav>
   <span class="armchip" id="armchip">—</span>
 </div></header>
@@ -229,9 +233,9 @@ footer{border-top:1px solid var(--line);margin-top:clamp(44px,6vw,86px);padding:
   <div class="hint">drag to turn the animal</div>
 </div>
 
-<!-- ═══ WHAT THE ACCOUNT IS WORTH ═══ -->
-<section id="aum"><div class="wrap">
-  <div class="rule"><span>equity</span><em id="curveSpan"></em></div>
+<!-- ═══ 1. THE MONEY. What the account is worth, and what is behind that number. ═══ -->
+<section id="account"><div class="wrap">
+  <div class="rule"><span>the account</span><em id="curveSpan"></em></div>
   <div class="aum">
     <div>
       <div class="lbl" style="margin-bottom:14px">account value</div>
@@ -241,11 +245,8 @@ footer{border-top:1px solid var(--line);margin-top:clamp(44px,6vw,86px);padding:
   </div>
   <div id="curveBox"><canvas id="curve"></canvas></div>
   <div class="cends"><span class="lbl" id="cFrom"></span><span class="lbl" id="cTo"></span></div>
-</div></section>
 
-<!-- ═══ POSITIONS ═══ -->
-<section id="book"><div class="wrap">
-  <div class="rule"><span>positions</span><em id="bookNote"></em></div>
+  <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>what it is holding</span><em id="bookNote"></em></div>
   <div class="scroll"><table>
     <thead><tr>
       <th>market</th><th>side</th><th class="r">notional</th><th class="r">of equity</th>
@@ -254,8 +255,47 @@ footer{border-top:1px solid var(--line);margin-top:clamp(44px,6vw,86px);padding:
     </tr></thead>
     <tbody id="positions"></tbody>
   </table></div>
+</div></section>
 
-  <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>the panorama</span><em>57 markets, all of them in view at once</em></div>
+<!-- ═══ 2. WHAT IS TRADING IT. The part that has to be seen before the market table. ═══ -->
+<section id="animal"><div class="wrap">
+  <div class="rule"><span>what is trading it</span><em id="dataset"></em></div>
+  <p class="lede">Not a model of a fly. The reconstructed wiring of one — every connection measured
+  from a real animal by electron microscopy, running as 165,836 leaky integrate-and-fire neurons on
+  constants taken verbatim from the published literature and never once tuned for profit.</p>
+  <div class="facts" id="facts"></div>
+
+  <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>six senses</span><em>what the exchange publishes, and the organ it reaches</em></div>
+  <p class="lede">Vision says <em>which</em> market — the 57 of them sit at fixed azimuths and the
+  fly turns. It says nothing about whether that market is any good, so everything else the animal
+  has is wired to something the exchange reports. A channel may only carry a signal whose published
+  innate valence matches its own.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>channel</th><th>modality</th><th class="r">neurons</th><th>cell types</th><th>carries</th><th class="r">now</th></tr></thead>
+    <tbody id="senseTable"></tbody>
+  </table></div>
+</div></section>
+
+<!-- ═══ 3. THE DESK. What the machinery is built to run. ═══ -->
+<section id="desk"><div class="wrap">
+  <div class="rule"><span>the desk</span><em>zero maker fee, zero taker fee — the only cost of trading here is the spread</em></div>
+  <div class="facts" id="limits"></div>
+
+  <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>built to scale</span><em id="scaleNote"></em></div>
+  <p class="lede">Nothing in the brain ever sees the balance. The animal cannot know how much money
+  it has, so the same market gives the same decision on a small account and a large one — and the
+  only thing that changes is what that decision is worth. Below: one run of real decisions against
+  live markets, replayed at four account sizes four orders of magnitude apart.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>equity</th><th class="r">positions</th><th class="r">notional</th><th class="r">× equity</th><th class="r">margin used</th></tr></thead>
+    <tbody id="scaling"></tbody>
+  </table></div>
+  <p class="lede" id="scalingFoot"></p>
+</div></section>
+
+<!-- ═══ 4. THE UNIVERSE IT HUNTS IN. Reference data, so it goes after the argument. ═══ -->
+<section id="markets"><div class="wrap">
+  <div class="rule"><span>the panorama</span><em>57 markets, all of them in the visual field at once</em></div>
   <div class="scroll"><table>
     <thead><tr>
       <th>market</th><th class="r">mark</th><th class="r">move</th><th class="r">open interest</th>
@@ -266,7 +306,7 @@ footer{border-top:1px solid var(--line);margin-top:clamp(44px,6vw,86px);padding:
   </table></div>
 </div></section>
 
-<!-- ═══ THE TAPE ═══ -->
+<!-- ═══ 5. THE RECEIPTS. ═══ -->
 <section id="tape"><div class="wrap">
   <div class="rule"><span>tape</span><em id="tapeNote">every pass is written down, including the ones that placed nothing</em></div>
   <div class="scroll"><table>
@@ -276,21 +316,6 @@ footer{border-top:1px solid var(--line);margin-top:clamp(44px,6vw,86px);padding:
     </tr></thead>
     <tbody id="feed"></tbody>
   </table></div>
-</div></section>
-
-<!-- ═══ THE ANIMAL, IN NUMBERS ═══ -->
-<section id="animal"><div class="wrap">
-  <div class="rule"><span>the animal</span><em id="dataset"></em></div>
-  <div class="facts" id="facts"></div>
-
-  <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>senses</span><em>what reaches it, and what it is wired to</em></div>
-  <div class="scroll"><table>
-    <thead><tr><th>channel</th><th>modality</th><th class="r">neurons</th><th>cell types</th><th>carries</th><th class="r">now</th></tr></thead>
-    <tbody id="senseTable"></tbody>
-  </table></div>
-
-  <div class="rule" style="margin-top:clamp(40px,5vw,70px)"><span>risk</span><em>the operator's numbers, and the only ones on this page not measured</em></div>
-  <div class="facts" id="limits"></div>
 </div></section>
 
 <footer><div class="wrap">
@@ -692,14 +717,15 @@ function renderAnimal(s){
   }).join('');
 
   const L = s.trade.limits || {};
+  const n = (s.pass.markets || []).length;
   $('#limits').innerHTML = [
-    [(L.slots || 1) + ' × ' + (L.leverage || 1) + '×', 'margin slots, levered'],
-    [pct(L.maxFraction || 0, 0), 'ceiling on one position'],
-    [(L.maxTotalFraction || 0) + '×', 'ceiling on the sum'],
-    [pct(L.depthFraction || 0, 0), 'of the thin side of the book'],
-    [(L.takerMaxBps || 0) + 'bp', 'above which it rests instead'],
-    [pct(L.deadbandFraction || 0, 0), 'deadband before re-targeting'],
-    [(L.staleAfterMinutes || 0) + 'm', 'before an untouched position closes'],
+    [(L.slots || 1) + ' × ' + (L.leverage || 1) + '×', 'margin slots, each levered'],
+    ['0bp', 'maker fee and taker fee'],
+    [String(n), 'markets it can turn to'],
+    [(L.maxTotalFraction || 0) + '×', 'equity it may hold in total'],
+    [(L.takerMaxBps || 0) + 'bp', 'crosses under this, rests above it'],
+    [pct(L.depthFraction || 0, 0), 'of the thin side of the live book'],
+    [pct(L.deadbandFraction || 0, 0), 'deadband before it re-targets'],
     [usd(s.trade.maxNotionalUsd || 0, 0), 'hard cap inside the signer'],
   ].map(([v,k]) => `<div><b class="num">${v}</b><span class="lbl">${k}</span></div>`).join('');
 
@@ -710,6 +736,41 @@ function renderAnimal(s){
     `normalisation the antennal lobe performs (Olsen &amp; Wilson 2008). ` +
     `Account <a href="${(s.account||{}).verify || '#'}" target="_blank" rel="noopener">${(s.account||{}).index}</a> ` +
     `on Lighter, readable by anyone without trusting this page.`;
+}
+
+/* ═══ BUILT TO SCALE ════════════════════════════════════════════════════════════════════════════
+   Written by trader/simulate.js from a real run, and read here. The page CANNOT compute this for
+   itself — a page that can compute its own figures will eventually compute a flattering one — so if
+   the file is missing it says so rather than showing anything.                                   */
+async function renderScaling(){
+  let d;
+  try {
+    const r = await fetch('scaling.json?t=' + Date.now(), { cache:'no-store' });
+    if (!r.ok) throw new Error('absent');
+    d = await r.json();
+  } catch (e) {
+    $('#scaling').innerHTML = `<tr><td colspan="5" style="color:var(--faint);padding:16px 0">` +
+      `not published yet — run trader/simulate.js</td></tr>`;
+    return;
+  }
+  $('#scaleNote').textContent = `${d.passes} real decisions, replayed`;
+  $('#scaling').innerHTML = (d.rows || []).map((r) => `<tr>
+      <td class="k">${usd(r.equity, r.equity >= 1000 ? 0 : 2)}</td>
+      <td class="r">${r.positions} / ${d.slots}</td>
+      <td class="r k">${usd(r.notional, 0)}</td>
+      <td class="r">${Number(r.leverage).toFixed(2)}×</td>
+      <td class="r">${pct(r.marginFraction, 0)}</td>
+    </tr>`).join('');
+  const rows = d.rows || [];
+  if (rows.length > 1) {
+    const a = rows[0], z = rows[rows.length - 1];
+    const same = Math.abs(a.leverage - z.leverage) < 0.02;
+    $('#scalingFoot').innerHTML = same
+      ? `Identical leverage and identical margin utilisation from ${usd(a.equity)} to ${usd(z.equity, 0)}. ` +
+        `Every limit is a fraction of equity, never a dollar figure, so an account that grows takes ` +
+        `bigger positions on its own — there is no scaling mechanism anywhere, deliberately.`
+      : `Leverage differs across account sizes, which means a cap is binding at one end.`;
+  }
 }
 
 /* ═══ DATA ══════════════════════════════════════════════════════════════════════════════════════ */
@@ -757,6 +818,7 @@ async function tick(){
 
 frame();
 loadCloud();
+renderScaling();
 tick();
 setInterval(tick, 15000);
 setInterval(() => { if (latest) age(latest); }, 1000);
