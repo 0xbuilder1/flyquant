@@ -95,7 +95,14 @@ async function main() {
   const markets = lighter.toArena(snap, lighter.loadPrevious());
   const seats = A.seatMarkets(markets);
   const bySymbol = new Map(markets.map((m) => [m.symbol, m]));
-  const ctx = { depthOf: {} };
+  // the books, which are the only thing that can make this fly short -- see brain/probe-bias.js.
+  // Without them every decision is LONG and the simulation is measuring a deaf animal.
+  const ctx = { depthOf: (() => {
+    try { return JSON.parse(require('fs').readFileSync(
+      path.join(__dirname, '..', 'keeper', 'state', 'books.json'), 'utf8')); }
+    catch { return {}; }
+  })() };
+  console.log(`books: ${Object.keys(ctx.depthOf).length} remembered`);
   ctx.ambient = senses.ambient(markets, ctx);
 
   console.log(`making ${passes} decisions against ${markets.length} live markets` +

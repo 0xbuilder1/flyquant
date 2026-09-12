@@ -13,7 +13,7 @@
   "_tradeNote": "armed is the config seatbelt and --broadcast is the command-line one, and BOTH are required before anything is sent. maxNotionalUsd is a third, enforced inside the signing process itself, so a bug in the sizing cannot spend more than the operator armed whatever the keeper believes. Leave armed false until a full dry cycle has produced orders you agree with.",
   "trade": {
     "armed": false,
-    "maxNotionalUsd": 1000,
+    "maxNotionalUsd": 0,
     "exposure": {
       "_maxFractionNote": "THE OPERATOR'S RISK BUDGET -- the only number in the product that is a policy rather than a measurement. At 1.0 a fully convinced, fully aroused fly puts one equity of NOTIONAL into one market, which at 10x leverage is one slot of margin out of ten. It was 0.25, then 0.5 to clear Lighter's $10 order floor on a $76 account; the slot arithmetic now does that job, so this is back to being a pure ceiling. The fly still moves inside it: conviction times appetite (octopamine against serotonin) decides how much of the allowance it actually takes.",
       "maxFraction": 1.0,
@@ -37,7 +37,8 @@
       "openStyle": "taker below takerMaxBps, post-only above",
       "exitStyle": "market"
     },
-    "_maxNotionalNote": "A BUG BACKSTOP, enforced inside the signing process itself, and it is the one number here that does NOT scale with equity -- so it has to be raised by hand as the account grows. The largest legitimate single order is a flip: 2 x one slot's notional = 2 x equity. At $76 that is $152, and 1000 clears everything honest up to about a $500 account while still stopping a sizing bug that tries to send thousands. IF ORDERS START BEING REFUSED AS THE ACCOUNT GROWS, THIS IS WHY."
+    "_maxNotionalNote": "A BUG BACKSTOP, enforced inside the signing process itself, which reads the account's equity off the exchange ITSELF rather than being told it -- that is what keeps it independent of the keeper's arithmetic. It is a MULTIPLE OF EQUITY and not a dollar figure on purpose: every other limit here scales with the account, so an absolute cap would silently start refusing every order the day the account outgrew it, and a backstop that turns into an outage is not a safety feature. At 3.0 the largest honest order -- a flip, which is 2x one slot's notional, and one slot at 10x is a whole equity of notional -- clears with room, while a sizing bug asking for ten times the account is refused. maxNotionalUsd is an OPTIONAL absolute ceiling on top; when both are set the tighter one wins. If the account cannot be read the order is refused rather than waved through.",
+    "maxNotionalFractionOfEquity": 3.0
   },
   "_passNote": "ms is fly time per pass and costs roughly 25x that in CPU. everySeconds is the gap between passes, which is also the market window the fly sees, because most of what it looks at has no historical endpoint.",
   "pass": {

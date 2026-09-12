@@ -17,7 +17,7 @@ WHAT IT REFUSES, AND WHY EACH REFUSAL IS HERE RATHER THAN UPSTREAM
   * no LIGHTER_API_KEY in the environment            -- a key is never a config field
   * --broadcast without a key                        -- fails loudly instead of quietly papering
   * a size or market the caller did not specify      -- no defaults on anything that costs money
-  * an order whose notional exceeds --max-notional   -- a last backstop in the process that signs,
+  * an order over --max-notional-fraction x equity  -- a last backstop in the process that signs,
                                                         so a bug upstream cannot spend more than the
                                                         operator armed, whatever it believes
 
@@ -58,6 +58,19 @@ def out(obj, code=0):
 
 def fail(msg, **extra):
     out({"ok": False, "error": msg, **extra}, 1)
+
+
+def account_equity(index):
+    """What the exchange says this account holds. Read here, by this process, on purpose."""
+    import urllib.request
+    try:
+        url = f"{HOST}/api/v1/account?by=index&value={index}"
+        with urllib.request.urlopen(url, timeout=15) as r:
+            body = json.load(r)
+        acc = (body.get("accounts") or [body])[0]
+        return float(acc.get("collateral") or 0)
+    except Exception:  # noqa: BLE001 -- any failure here must refuse, never wave through
+        return None
 
 
 async def place(args, order, key):
@@ -167,7 +180,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--account", type=int, required=True, help="Lighter account index")
     ap.add_argument("--api-key-index", type=int, default=4, help="0-3 are reserved for Lighter's own UIs")
-    ap.add_argument("--max-notional", type=float, default=0.0, help="refuse any order larger than this, in USD")
+    ap.add_argument("--max-notional", type=float, default=0.0,
+                    help="absolute ceiling in USD. Optional, and it does NOT scale -- prefer the fraction")
+    ap.add_argument("--max-notional-fraction", type=float, default=0.0,
+                    help="ceiling as a multiple of the equity this process reads off the exchange")
     ap.add_argument("--broadcast", action="store_true")
     args = ap.parse_args()
 
@@ -184,8 +200,41 @@ def main():
             fail(f"the order is missing {field}; nothing here has a default that costs money")
 
     notional = float(order.get("notional") or 0)
-    if args.max_notional and notional > args.max_notional:
-        fail(f"order notional ${notional:.2f} exceeds the armed maximum ${args.max_notional:.2f}")
+
+    # ── THE BACKSTOP, AND WHY IT IS A FRACTION RATHER THAN A DOLLAR FIGURE ──────────────────────
+    #
+    # This is the third seatbelt: enforced inside the signing process so a bug in the keeper's
+    # sizing cannot spend more than the operator armed, whatever the keeper believes.
+    #
+    # It used to be an absolute dollar cap, and that was wrong in a way that only shows up when the
+    # thing works. Every other limit in this product is a fraction of equity, so the account grows
+    # and the positions grow with it -- but an absolute cap does not move, so the day the account
+    # outgrows it EVERY order starts being refused and the fly silently stops trading. A backstop
+    # that turns into an outage is not a safety feature.
+    #
+    # So the ceiling is a multiple of equity, and the equity is READ FROM THE EXCHANGE BY THIS
+    # PROCESS -- not passed in by the keeper. That is what keeps it independent: the keeper can be
+    # wrong about the balance, the sizing can be wrong about the fraction, and this still bounds the
+    # order against what the account actually holds.
+    #
+    # If the account cannot be read, the order is REFUSED rather than waved through. An unverifiable
+    # ceiling is not a ceiling.
+    max_notional = None
+    ceiling_why = ""
+    if args.max_notional_fraction:
+        equity = account_equity(args.account)
+        if equity is None:
+            fail("could not read the account to check the order against it -- refusing to sign blind")
+        max_notional = equity * args.max_notional_fraction
+        ceiling_why = f"{args.max_notional_fraction:g}x the ${equity:,.2f} the account actually holds"
+    # an absolute cap may still be set, and when both exist the tighter one wins
+    if args.max_notional:
+        if max_notional is None or args.max_notional < max_notional:
+            max_notional = args.max_notional
+            ceiling_why = "the absolute maximum in the config"
+
+    if max_notional is not None and notional > max_notional:
+        fail(f"order notional ${notional:,.2f} exceeds ${max_notional:,.2f} -- {ceiling_why}")
 
     key = os.environ.get("LIGHTER_API_KEY", "").strip()
 

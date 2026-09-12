@@ -134,6 +134,36 @@ header nav a:hover{color:var(--ink)}
 
 .hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);font:400 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);z-index:6;pointer-events:none}
 
+/* ═══ THE READOUT ═══════════════════════════════════════════════════════════════════════════════
+   Everything that reaches the animal, and everything it does about it, as it happens. It sits
+   directly under the specimen because that is what it is: the instrument trace beside the prep. */
+#readout{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#040507}
+#readout .bar{display:flex;align-items:center;gap:14px;padding:9px 0 8px}
+/* nowrap and flex:none, or the labels get squeezed into vertical columns and collide */
+#readout .bar .lbl{color:var(--dim);white-space:nowrap;flex:none;overflow:hidden;text-overflow:ellipsis}
+#readout .bar .sp{flex:1;min-width:8px}
+@media(max-width:900px){#termWhat{display:none}}
+#term{
+  height:clamp(220px,31vh,340px);overflow-y:auto;overflow-x:hidden;
+  font:400 11px/1.62 var(--mono);padding:0 0 14px;scrollbar-width:thin;
+  scrollbar-color:var(--line2) transparent;
+}
+#term::-webkit-scrollbar{width:7px}
+#term::-webkit-scrollbar-thumb{background:var(--line2)}
+#term .ln{display:flex;gap:12px;white-space:pre;color:var(--dim)}
+#term .ln:hover{background:#080a0d}
+#term .t{color:#3b4048;flex:none}
+#term .k{flex:none;width:66px;letter-spacing:.08em}
+#term .v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#term .sep{height:1px;background:var(--line);margin:7px 0}
+/* the six keys, so a whole pass can be read at a glance */
+#term .k.SENSE{color:#7bbf3a} #term .k.INGEST{color:#4d535b} #term .k.TURN{color:#6f7680}
+#term .k.DRIVE{color:#7bbf3a} #term .k.MOOD{color:#6f7680} #term .k.DECIDE{color:var(--fly)}
+#term .k.PLAN{color:#9aa1ab} #term .k.ORDER{color:#9aa1ab} #term .k.BOOK{color:#6f7680}
+#term em{font-style:normal;color:var(--ink)}
+#term .up{color:var(--up)} #term .down{color:var(--down)} #term .fly{color:var(--fly)}
+#term .warn{color:#d9a441}
+
 /* ═══ sections ════════════════════════════════════════════════════════════════════════════════ */
 section{padding:clamp(44px,6vw,86px) 0 0}
 section:last-of-type{padding-bottom:clamp(44px,6vw,86px)}
@@ -232,6 +262,17 @@ footer{border-top:1px solid var(--line);margin-top:clamp(44px,6vw,86px);padding:
 
   <div class="hint">drag to turn the animal</div>
 </div>
+
+<!-- ═══ THE READOUT — everything reaching the animal, as it happens ═══ -->
+<div id="readout"><div class="wrap">
+  <div class="bar">
+    <span class="lbl">readout</span>
+    <span class="lbl" id="termWhat">every input it receives and every decision it makes</span>
+    <span class="sp"></span>
+    <span class="lbl" id="termCount"></span>
+  </div>
+  <div id="term"></div>
+</div></div>
 
 <!-- ═══ 1. THE MONEY. What the account is worth, and what is behind that number. ═══ -->
 <section id="account"><div class="wrap">
@@ -738,6 +779,148 @@ function renderAnimal(s){
     `on Lighter, readable by anyone without trusting this page.`;
 }
 
+/* ═══ THE READOUT ═══════════════════════════════════════════════════════════════════════════════
+   A line for every input the animal receives and every decision it makes, written in the order it
+   happened. It appends only when the pass actually changes, so the trace is a record rather than a
+   redraw, and it sticks to the bottom unless the reader has scrolled up to look at something.    */
+const term = { seen: new Set(), lines: 0 };
+
+function stuck(){
+  const el = $('#term');
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+}
+function emit(at, key, html){
+  const el = $('#term');
+  const d = new Date(at), p = (x) => String(x).padStart(2, '0');
+  const t = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  const row = document.createElement('div');
+  row.className = 'ln';
+  row.innerHTML = `<span class="t">${t}</span><span class="k ${key}">${key}</span><span class="v">${html}</span>`;
+  el.appendChild(row);
+  term.lines++;
+  // the page is long-lived; the trace is not allowed to grow without bound
+  while (el.children.length > 600) el.removeChild(el.firstChild);
+}
+function rule(){
+  const el = $('#term'), d = document.createElement('div');
+  d.className = 'sep'; el.appendChild(d);
+}
+
+const padr = (x, n) => String(x).padEnd(n);
+const padl = (x, n) => String(x).padStart(n);
+
+/** one pass, written out in full */
+function tracePass(s){
+  const p = s.pass, at = p.at, was = stuck();
+  const ms = p.markets || [];
+
+  rule();
+
+  // ── what the exchange handed it, across the whole universe ─────────────────────────────────
+  const oi = ms.reduce((a, m) => a + (m.openInterest || 0), 0);
+  const looming = ms.filter((m) => m.fall > 0.02).length;
+  const up = ms.filter((m) => m.moved > 0).length;
+  const funded = ms.filter((m) => m.funding != null);
+  const fMax = funded.length ? funded.reduce((a, m) => Math.abs(m.funding) > Math.abs(a.funding) ? m : a) : null;
+  const mover = ms.filter((m) => m.moved != null).sort((a, z) => Math.abs(z.moved) - Math.abs(a.moved))[0];
+  const widest = ms.filter((m) => m.high > 0 && m.mark > 0)
+    .sort((a, z) => (z.high - z.low)/z.mark - (a.high - a.low)/a.mark)[0];
+  const basis = ms.filter((m) => m.index > 0)
+    .map((m) => ({ s: m.symbol, b: (m.mark - m.index)/m.index }))
+    .sort((a, z) => Math.abs(z.b) - Math.abs(a.b))[0];
+
+  emit(at, 'INGEST', `<em>${ms.length}</em> markets · open interest <em>${usd(oi, 0)}</em> · ` +
+    `<em>${up}</em> up, <em>${ms.length - up}</em> down · <em>${looming}</em> looming`);
+  if (mover) emit(at, 'INGEST', `biggest move <em>${mover.symbol}</em> ` +
+    `<span class="${sgn(mover.moved)}">${(mover.moved*100).toFixed(2)}%</span> · ` +
+    (widest ? `widest day <em>${widest.symbol}</em> ${pct((widest.high - widest.low)/widest.mark, 1)} · ` : '') +
+    (basis ? `furthest from index <em>${basis.s}</em> ${(basis.b*1e4).toFixed(1)}bp` : ''));
+  if (fMax) emit(at, 'INGEST', `hardest funding <em>${fMax.symbol}</em> ` +
+    `<span class="${sgn(fMax.funding)}">${(fMax.funding*1e4).toFixed(2)}bp</span> · ` +
+    `deepest book <em>${ms.slice().sort((a,z)=>(z.openInterest||0)-(a.openInterest||0))[0].symbol}</em> ` +
+    `${usd(ms.slice().sort((a,z)=>(z.openInterest||0)-(a.openInterest||0))[0].openInterest || 0, 0)} OI`);
+
+  // ── where it turned, and what it ended up facing ───────────────────────────────────────────
+  emit(at, 'TURN', `heading <em>${Number(p.heading||0).toFixed(1)}</em> of ${s.arena.bands} bands · ` +
+    `${fmt(s.arena.inputNeurons)} medulla inputs driven · now facing <em class="fly">${p.chosen || '—'}</em>`);
+
+  // ── the six channels, at the market in front ───────────────────────────────────────────────
+  const sm = p.smelled || {};
+  emit(at, 'SENSE', SENSE_ORDER.map((k) => {
+    const v = Math.round((Number(sm[k]) || 0) * 100);
+    return `${k} ${v > 50 ? '<em>' + padl(v, 3) + '</em>' : padl(v, 3)}`;
+  }).join('  ') + `   <span style="color:#3b4048">on ${p.smelledOf || '—'}</span>`);
+
+  // the raw numbers behind those six, for the market being faced
+  const f = ms.find((m) => m.symbol === p.smelledOf);
+  if (f) emit(at, 'SENSE', `${f.symbol} mark <em>${Number(f.mark).toPrecision(6)}</em> · ` +
+    `OI <em>${usd(f.openInterest || 0, 0)}</em> · funding <em>${f.funding != null ? (f.funding*1e4).toFixed(2) + 'bp' : '—'}</em> · ` +
+    `index ${f.index != null ? Number(f.index).toPrecision(6) : '—'} · ` +
+    `day ${f.low != null ? Number(f.low).toPrecision(5) + '–' + Number(f.high).toPrecision(5) : '—'} · ` +
+    `max lev ${f.maxLeverage ? Math.round(f.maxLeverage) + '×' : '—'}`);
+
+  // ── what fired ─────────────────────────────────────────────────────────────────────────────
+  const r = p.rates || {};
+  emit(at, 'DRIVE', [['LPLC2','escape'],['MN9','feed'],['MDN','retreat'],['DNp09','freeze'],['DNa02','steer']]
+    .map(([t,k]) => `${t} ${(r[k] ? r[k].hz : 0) > 0 ? '<em>' + (r[k].hz).toFixed(1) + '</em>' : (r[k] ? r[k].hz : 0).toFixed(1)}Hz`)
+    .join('  ') + `   <span style="color:#3b4048">[DNp01 ${r.giantFiber ? r.giantFiber.hz.toFixed(1) : 0}Hz, published, not acted on]</span>`);
+  emit(at, 'DRIVE', `<em>${fmt(p.fired)}</em> of ${fmt(s.brain.neurons)} neurons fired · ` +
+    `${p.ms}ms of fly time in ${(p.cpuMs/1000).toFixed(1)}s of cpu`);
+
+  const mo = p.mood || {};
+  emit(at, 'MOOD', `octopamine <em>${(mo.octopamineHz||0).toFixed(1)}Hz</em> against serotonin ` +
+    `<em>${(mo.serotoninHz||0).toFixed(1)}Hz</em> → appetite <em>${pct(mo.appetite||0,0)}</em>, ` +
+    `patience <em>${pct(mo.patience||0,0)}</em>` +
+    `   <span style="color:#3b4048">[dopamine ${(mo.dopamineHz||0).toFixed(1)}Hz, read, not acted on]</span>`);
+
+  // ── the decision, and what the money did about it ──────────────────────────────────────────
+  const dir = p.action === 'long' ? 'up' : (p.action === 'short' || p.action === 'escape') ? 'down' : '';
+  emit(at, 'DECIDE', `<span class="${dir}"><em>${(p.action||'').toUpperCase()}</em></span> ` +
+    `${pct(p.size||0,0)} <em class="fly">${p.chosen||''}</em>   <span style="color:#3b4048">${p.why||''}</span>`);
+
+  const t = s.trade || {}, pl = t.plan || {};
+  if (pl.reason) {
+    emit(at, 'PLAN', `<span class="warn">no order</span> — ${pl.reason}`);
+  } else if (pl.target != null) {
+    emit(at, 'PLAN', `hold <em>${usd(pl.held||0)}</em> → target <em>${usd(pl.target)}</em> ` +
+      `(${usd(pl.delta||0)} to do)`);
+  }
+
+  const last = (s.feed || []).slice().sort((a, z) => z.at - a.at)[0];
+  if (last && !term.seen.has(last.at + ':' + last.symbol)) {
+    term.seen.add(last.at + ':' + last.symbol);
+    const route = last.execution === 'post-only' ? 'resting post-only' : last.execution === 'market' ? 'crossing' : '';
+    emit(last.at, 'ORDER', `<em>${(last.side||last.action||'').toUpperCase()}</em> ` +
+      `${last.sizeBase != null ? Number(last.sizeBase).toLocaleString('en-US',{maximumFractionDigits:4}) : ''} ` +
+      `<em>${last.symbol||''}</em> ${last.notional != null ? usd(last.notional) : ''} ${route} · ` +
+      `<span class="${last.status === 'sent' || last.status === 'filled' ? 'up' : last.status === 'refused' || last.status === 'rejected' ? 'down' : ''}">` +
+      `${(last.status||'').toUpperCase()}</span>${last.note ? ' — ' + last.note : ''}`);
+  }
+
+  const a = s.account || {};
+  emit(at, 'BOOK', `equity <em>${usd(a.equity||0)}</em> · ` +
+    `<em>${(a.positions||[]).length}</em>/${(t.limits||{}).slots||1} slots · ` +
+    `notional <em>${usd(a.exposure||0)}</em> · unrealised ` +
+    `<span class="${sgn(a.unrealized)}">${usd(a.unrealized||0)}</span>`);
+
+  $('#termCount').textContent = `${fmt(s.totals ? s.totals.passes : 0)} passes · ${term.lines} lines`;
+  if (was) $('#term').scrollTop = $('#term').scrollHeight;
+}
+
+/** what happened before the page was opened, so it never starts empty */
+function seedTerminal(s){
+  const rows = (s.tape || []).slice().sort((a, z) => a.at - z.at);
+  for (const r of rows) {
+    const dir = r.action === 'long' ? 'up' : (r.action === 'short' || r.action === 'escape') ? 'down' : '';
+    emit(r.at, 'DECIDE', `<span class="${dir}"><em>${(r.action||'').toUpperCase()}</em></span> ` +
+      `${pct(r.size||0,0)} <em class="fly">${r.symbol||''}</em>   ` +
+      `<span style="color:#3b4048">${r.why||''}</span>`);
+  }
+  if (rows.length) emit(Date.now(), 'INGEST', `<span style="color:#3b4048">` +
+    `${rows.length} earlier decisions replayed from the tape — live from here</span>`);
+  $('#term').scrollTop = $('#term').scrollHeight;
+}
+
 /* ═══ BUILT TO SCALE ════════════════════════════════════════════════════════════════════════════
    Written by trader/simulate.js from a real run, and read here. The page CANNOT compute this for
    itself — a page that can compute its own figures will eventually compute a flattering one — so if
@@ -808,6 +991,8 @@ async function tick(){
   buildOrbit(s); age(s);
 
   if (s.pass.at !== lastAt) {
+    if (lastAt === 0) seedTerminal(s);
+    tracePass(s);
     lastAt = s.pass.at;
     try {
       const r = await fetch('activity.bin?t=' + s.pass.at, { cache:'no-store' });

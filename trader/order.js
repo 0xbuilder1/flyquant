@@ -52,6 +52,7 @@ function callSigner(order, cfg, broadcast) {
       '--account', String(cfg.accountIndex),
       '--api-key-index', String(cfg.apiKeyIndex == null ? 4 : cfg.apiKeyIndex),
       '--max-notional', String(cfg.maxNotionalUsd || 0),
+      '--max-notional-fraction', String(cfg.maxNotionalFractionOfEquity || 0),
     ];
     if (broadcast) args.push('--broadcast');
 

@@ -108,14 +108,49 @@ function loadConfig() {
   // What the channels normalise against is the UNIVERSE AS IT STANDS THIS PASS, not a ceiling. Each
   // market is felt as its standing among its 56 peers, the way the antennal lobe scales a glomerulus
   // by the whole population's input. There is no maximum here to pick and therefore none to fit.
-  const ctx = {
-    // books seen on previous passes, so Johnston's organ has something to feel
-    depthOf: (() => {
-      try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'keeper', 'state', 'books.json'), 'utf8')); }
-      catch { return {}; }
-    })(),
-  };
+  // ── EVERY BOOK, EVERY PASS, AND THIS IS NOT AN OPTIMISATION ─────────────────────────────────
+  //
+  // Johnston's organ is the ONLY channel that drives MDN. brain/probe-bias.js measures it directly:
+  // driven alone, wind puts MDN at 55.8Hz and the fly SHORTS 94%, while food, geosmin, cVA, heat and
+  // humidity all drive MN9 and the fly goes long. The short side of this animal hangs entirely on
+  // whether it can feel the order book.
+  //
+  // And it could not. The keeper used to remember only the book of the market the fly had just
+  // faced, so 52 of the 57 markets had no wind at all — and 88% of every decision ever recorded was
+  // LONG. That is not the animal being bullish. It is the animal deaf in the one sense that argues
+  // the other way, which at ten slots and ten times leverage is a levered long-only book wearing a
+  // fly costume.
+  //
+  // So every book is read every pass. It is 57 requests against an endpoint that answers in
+  // milliseconds, once every few minutes, and it is the difference between a fly that can disagree
+  // with a market and one that cannot.
+  const tBooks = Date.now();
+  const depthOf = {};
+  const CONCURRENCY = 8;
+  const queue = [...markets];
+  await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
+    while (queue.length) {
+      const m = queue.pop();
+      try {
+        const d = await lighter.depth(m.marketId);
+        // a market with no book has no wind, which is true rather than merely unknown
+        if (d && d.bid + d.ask > 0) {
+          depthOf[m.symbol] = { bid: d.bid, ask: d.ask, spreadBps: d.spreadBps, at: Date.now() };
+        }
+      } catch (e) { /* one unreadable book must not cost the pass */ }
+    }
+  }));
+  const booksMs = Date.now() - tBooks;
+  console.log(`books: ${Object.keys(depthOf).length}/${markets.length} read in ${(booksMs / 1000).toFixed(1)}s` +
+    ` — the only channel that can make it short`);
+
+  const ctx = { depthOf };
   ctx.ambient = senses.ambient(markets, ctx);
+  try {
+    const bf = path.join(__dirname, 'keeper', 'state', 'books.json');
+    fs.mkdirSync(path.dirname(bf), { recursive: true });
+    fs.writeFileSync(bf, JSON.stringify(depthOf));
+  } catch (e) { console.error('could not record the books:', e.message); }
   const tRun = Date.now();
   const pass = runPass(brain, arena, seats, markets, { ms, seed, ctx, heading0, raster: { capacity: 400000 } });
   try {
@@ -180,18 +215,6 @@ function loadConfig() {
       }
     } catch (e) {
       console.log(`depth ${pass.chosen.symbol}: unreadable — ${e.message}`);
-    }
-
-    // remember this book for the next pass, so the fly can feel the wind on a market it revisits
-    if (depth) {
-      try {
-        const bf = path.join(__dirname, 'keeper', 'state', 'books.json');
-        const books = ctx.depthOf || {};
-        books[pass.chosen.symbol] = { bid: depth.bid, ask: depth.ask, spreadBps: depth.spreadBps, at: Date.now() };
-        for (const k of Object.keys(books)) if (Date.now() - (books[k].at || 0) > 6 * 3600e3) delete books[k];
-        fs.mkdirSync(path.dirname(bf), { recursive: true });
-        fs.writeFileSync(bf, JSON.stringify(books));
-      } catch (e) { console.error('could not record the book:', e.message); }
     }
 
     plan = position.plan({
