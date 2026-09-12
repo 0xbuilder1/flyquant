@@ -41,7 +41,14 @@ import sys
 import time
 
 HOST = "https://api.rh.lighter.xyz"
-CHAIN_ID = 4663
+# THE SIGNING CHAIN ID IS NOT THE SETTLEMENT CHAIN ID, and getting that wrong is indistinguishable
+# from a bad key: every signature verifies against the wrong domain and comes back
+# `21120 invalid signature`, whatever the key is and whatever is in the order.
+#
+#   4663    Robinhood Chain, the L1 the ZkLighter deposit contract lives on. Used by keeper/harvest.js.
+#   466324  Lighter's own L2 behind api.rh.lighter.xyz. Everything SIGNED for the exchange uses this.
+CHAIN_ID = 466324
+SETTLEMENT_CHAIN_ID = 4663      # where deposits land; never used for signing
 
 
 def out(obj, code=0):

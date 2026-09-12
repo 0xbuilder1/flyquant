@@ -6,7 +6,9 @@
     "chainId": 4663,
     "accountIndex": 0,
     "apiKeyIndex": 4,
-    "maxSlippage": 0.005
+    "maxSlippage": 0.005,
+    "signingChainId": 466324,
+    "_chainIdNote": "TWO DIFFERENT CHAIN IDS AND THEY ARE NOT INTERCHANGEABLE. 4663 is Robinhood Chain, the L1 where the ZkLighter deposit contract lives -- keeper/harvest.js uses that one. 466324 is Lighter's own L2 behind api.rh.lighter.xyz, and EVERYTHING SIGNED FOR THE EXCHANGE uses it. Signing with 4663 verifies against the wrong domain and returns `21120 invalid signature` -- identical to a wrong key, an empty slot or a malformed order, which is what made it cost three live attempts to find."
   },
   "_tradeNote": "armed is the config seatbelt and --broadcast is the command-line one, and BOTH are required before anything is sent. maxNotionalUsd is a third, enforced inside the signing process itself, so a bug in the sizing cannot spend more than the operator armed whatever the keeper believes. Leave armed false until a full dry cycle has produced orders you agree with.",
   "trade": {
