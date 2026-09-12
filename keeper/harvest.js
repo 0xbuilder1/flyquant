@@ -337,10 +337,23 @@ const LAUNCH_TOPIC = '0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa
 const pad32 = (a) => '0x' + a.toLowerCase().replace(/^0x/, '').padStart(64, '0');
 const wordAddr = (d, i) => '0x' + d.slice(2 + i * 64 + 24, 2 + (i + 1) * 64);
 
-async function findLaunch(pc, factory, creator) {
+/**
+ * @param {bigint|null} since  scan only forward of this block. Null means the deep first look.
+ *
+ * THE FIRST LOOK IS DEEP; EVERY ONE AFTER IT IS NOT. Starting up, the launch may already have
+ * happened, so it reaches back 400,000 blocks in eight windows. Doing that again every thirty
+ * seconds is eight pointless queries a poll against a chain that rate limits -- and worse, the loop
+ * sat inside them, printing nothing, looking hung.
+ *
+ * Once caught up, the only blocks that can contain a launch we have not seen are the ones since the
+ * last look. That is usually a few hundred and one query.
+ */
+async function findLaunch(pc, factory, creator, since, from0) {
   const latest = await pc.getBlockNumber();
   const span = 50000n;
-  const floor = latest > 400000n ? latest - 400000n : 0n;
+  const floor = since != null
+    ? (since < latest ? since : latest)
+    : (from0 != null ? from0 : (latest > 400000n ? latest - 400000n : 0n));
   for (let to = latest; to > floor;) {
     const from = to - span + 1n > floor ? to - span + 1n : floor;
     const logs = await pc.request({
@@ -369,7 +382,7 @@ async function findLaunch(pc, factory, creator) {
     if (from === floor) break;
     to = from - 1n;
   }
-  return null;
+  return { none: true, tip: latest };
 }
 
 /** write what the chain told us into config, so nothing is ever typed in twice */
@@ -436,7 +449,7 @@ async function loop() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   log(`loop: polling every ${checkMs / 1000}s · harvest now at ${hardEth} ETH, else at ${softEth} ETH every ${baseMs / 60000}m`);
-  let lastRun = 0, lastSaid = 0, lastIdle = 0;
+  let lastRun = 0, lastSaid = 0, lastIdle = 0, scannedTo = null, said = false;
   for (;;) {
     try {
       const cur = loadConfig();
@@ -459,9 +472,25 @@ async function loop() {
         // decides whether these fees are ours.
         const me = (cur.feeWallet && cur.feeWallet.address) || '';
         const by = ((cur.launch && cur.launch.launchedBy) || me) || '';
-        const found = /^0x[0-9a-fA-F]{40}$/.test(by) && !/^0x0+$/.test(by)
-          ? await findLaunch(pc2, cur.pons.factory, by).catch(() => null)
+        if (!said) {
+          // said BEFORE the first scan, which takes a few seconds and used to happen in silence --
+          // a process that prints a banner and then says nothing looks hung, not patient
+          log(`watching for a launch by ${by}` +
+            (by.toLowerCase() === me.toLowerCase() ? '' : ` paying ${me}`) +
+            ` — checking every ${checkMs / 1000}s, gas float untouched`);
+          said = true;
+        }
+        const res = /^0x[0-9a-fA-F]{40}$/.test(by) && !/^0x0+$/.test(by)
+          ? await findLaunch(pc2, cur.pons.factory, by, scannedTo,
+              // launch.watchFromBlock ignores everything at or before it. A wallet that has launched
+              // before -- a test token, say -- would otherwise have its OLD launch rediscovered by
+              // the deep first scan and wired straight back in, and the watcher would then stop
+              // looking, never seeing the launch it was actually started for.
+              (cur.launch && cur.launch.watchFromBlock) ? BigInt(cur.launch.watchFromBlock) : null
+            ).catch(() => null)
           : null;
+        const found = res && !res.none ? res : null;
+        if (res && res.none) scannedTo = res.tip;             // caught up; next look starts here
         if (found && found.feeRecipient.toLowerCase() === me.toLowerCase()) {
           log(`\nLAUNCH FOUND at block ${found.launchBlock}`);
           log(`  token ${found.token}`);
@@ -473,9 +502,8 @@ async function loop() {
         if (found) {
           log(`found a launch by this wallet whose fees pay ${found.feeRecipient} — not us. Ignoring.`);
         }
-        if (Date.now() - lastIdle >= 300000) {
-          log(`watching for a launch by ${by}` +
-            (by.toLowerCase() === me.toLowerCase() ? '' : ` paying ${me}`) + ' — gas float untouched');
+        if (Date.now() - lastIdle >= 600000) {
+          log(`still watching — nothing from ${by} yet (block ${scannedTo || '?'})`);
           lastIdle = Date.now();
         }
         await sleep(checkMs);
