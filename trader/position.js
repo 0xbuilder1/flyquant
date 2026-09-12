@@ -158,7 +158,16 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
   //
   // ADDING TO A POSITION THE ACCOUNT ALREADY HAS IS ALWAYS ALLOWED, and so is reducing one. This
   // bounds how many markets are held, never what may be done in a market already held.
-  const openCount = (account.positions || []).filter((p) => Math.abs(p.notional) > 0).length;
+  // DUST DOES NOT HOLD A SLOT, because dust cannot be closed.
+  //
+  // A market order that fills nearly all of a position leaves a remainder, and a remainder under the
+  // exchange's minimum order size is untradeable forever: every attempt to close it rounds to zero
+  // base units and is refused. Counting it as an occupied slot means the book is permanently one
+  // slot short, and since it is also the oldest position it is chosen for rotation every pass, fails
+  // every pass, and jams the rotation completely. Seen live: $0.30 of ASTS held a slot and blocked
+  // every rotation for nine consecutive passes.
+  const dust = Number(exposure.dustUsd == null ? 10 : exposure.dustUsd);
+  const openCount = (account.positions || []).filter((p) => Math.abs(p.notional) > dust).length;
   if (slotsDeclared && held === 0 && target !== 0 && openCount >= slots) {
     return { ...base, target: 0, order: null, slots, openCount,
              reason: `all ${slots} slots are full — nothing is held in ${market.symbol} and there is no room to open one` };
@@ -202,7 +211,19 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
   const delta = target - held;
   const minQuote = Number(market.minQuote) || 0;
   const minBase = Number(market.minBase) || 0;
-  const sizeBase = Math.abs(delta) / mark;
+  // ── A FULL CLOSE SENDS THE SIZE IT HOLDS, NOT A SIZE IT RECOMPUTED ──────────────────────────
+  //
+  // Everywhere else, size comes from notional / mark. For a close that is a round trip through two
+  // divisions -- the mark is itself derived from notional / size -- and it lands slightly short.
+  // Slightly short of a full close leaves a REMAINDER, and a remainder under the exchange's minimum
+  // is untradeable forever: every attempt to close it rounds to zero base units. That is how $0.30
+  // of ASTS ended up permanently holding a slot and jamming every rotation behind it.
+  //
+  // When the target is zero, the exchange already knows the exact size. Send that.
+  const heldPos = (account.positions || []).find((x) => x.marketId === marketId);
+  const sizeBase = (target === 0 && heldPos && heldPos.size > 0)
+    ? Math.abs(heldPos.size)
+    : Math.abs(delta) / mark;
 
   // ── CROSS UNLESS CROSSING IS EXPENSIVE ──────────────────────────────────────────────────────
   //
@@ -273,7 +294,14 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
   // Round the base size DOWN to the market's own precision. Rounding up could put the order above
   // the target, and a size that overshoots on every pass ratchets exposure up over time.
   const step = Math.pow(10, -(Number(market.sizeDecimals) || 0));
-  const rounded = Math.floor(sizeBase / step) * step;
+  // FLOOR TO OPEN, CEIL TO CLOSE. Flooring never buys more than intended, which is what you want
+  // opening. Flooring a CLOSE leaves a remainder every time -- 44.87 held becomes 44.8 sent -- and a
+  // remainder under the exchange's minimum can never be closed afterwards. A close is reduce-only,
+  // so the exchange caps it at the position size and rounding up cannot overshoot. It just finishes
+  // the job.
+  const rounded = (target === 0 && sizeBase > 0)
+    ? Math.ceil(sizeBase / step) * step
+    : Math.floor(sizeBase / step) * step;
   if (!(rounded >= minBase)) {
     return { ...out, order: null, reason: `size rounds to ${rounded} at this market's precision, under its ${minBase} minimum` };
   }

@@ -429,12 +429,25 @@ function loadConfig() {
           ' — closing whatever it has looked at least recently to make room');
       }
       const forgotten = position.stale({ account, lastSeen, staleAfterMs: staleMs });
-      if (forgotten.length) {
-        const f = forgotten[0];
+      // TRY EACH CANDIDATE UNTIL ONE CAN ACTUALLY BE CLOSED. The stalest position is sometimes one
+      // that cannot be closed at all -- a remainder under the exchange's minimum rounds to zero base
+      // units and is refused. Stopping at forgotten[0] meant that one position was chosen, refused,
+      // and chosen again on every subsequent pass, forever.
+      for (const f of forgotten) {
         const closePlan = position.plan({
           account,
-          market: { symbol: f.symbol, marketId: f.marketId, mark: Math.abs(f.notional) / Math.max(f.size, 1e-12),
-                    minQuote: 0, minBase: 0, sizeDecimals: 2 },
+          // the market's OWN precision, not a hardcoded 2 -- rounding a close at the wrong
+          // precision is how a position becomes a remainder that cannot be closed
+          market: (() => {
+            const m = markets.find((x) => x.marketId === f.marketId);
+            return {
+              symbol: f.symbol, marketId: f.marketId,
+              mark: Math.abs(f.notional) / Math.max(f.size, 1e-12),
+              minQuote: 0, minBase: 0,
+              sizeDecimals: m && m.market ? m.market.sizeDecimals : 2,
+              priceDecimals: m && m.market ? m.market.priceDecimals : 6,
+            };
+          })(),
           decision: { action: 'escape', size: 1,
                       why: wantsRoom
                         ? `the fly turned to ${pass.chosen.symbol} and has not faced ${f.symbol}` +
@@ -443,15 +456,19 @@ function loadConfig() {
                                        : `not faced for ${Math.round(f.ageMs / 60000)} minutes`) },
           exposure: tradeCfg.exposure,
         });
-        if (closePlan.order) {
-          feedEntry = await orders.execute({
-            plan: closePlan, cfg: orderCfg(f.marketId), broadcast,
-            context: { seed, reason: 'stale' },
-          });
-          console.log(`stale: closing ${f.symbol}, ` +
-            (f.neverSeen ? 'never faced' : `not faced for ${Math.round(f.ageMs / 60000)}m`) +
-            ` — ${feedEntry.status.toUpperCase()}`);
+        if (!closePlan.order) {
+          // untradeable remainder, or already flat: say so once and move to the next candidate
+          console.log(`  cannot close ${f.symbol}: ${closePlan.reason}`);
+          continue;
         }
+        feedEntry = await orders.execute({
+          plan: closePlan, cfg: orderCfg(f.marketId), broadcast,
+          context: { seed, reason: 'stale' },
+        });
+        console.log(`stale: closing ${f.symbol}, ` +
+          (f.neverSeen ? 'never faced' : `not faced for ${Math.round(f.ageMs / 60000)}m`) +
+          ` — ${feedEntry.status.toUpperCase()}`);
+        break;                                   // at most one order leaves per pass
       }
     }
   } else {

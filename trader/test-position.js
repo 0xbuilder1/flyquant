@@ -82,6 +82,19 @@ ok('long to short is ONE order straight through zero', () => {
   assert.strictEqual(p.delta, -500, 'the delta must cross zero in a single order');
   assert.strictEqual(p.order.reduceOnly, false, 'a flip is not reduce-only');
 });
+ok('a full close sends the size the account HOLDS, not a recomputed one', () => {
+  // notional/mark round-trips through two divisions and lands short; short of a full close leaves
+  // a remainder that is untradeable forever and jams the slot it sits in.
+  const held = [{ marketId: 44, symbol: 'PONS', sign: 1, size: 44.87, entry: 60.048,
+                  notional: 2691.70643, unrealized: 0, realized: 0, liquidation: 0, funding: 0 }];
+  const p = plan({ account: account(10000, held), market: { ...MARKET, mark: 59.989 },
+                   decision: ESCAPE, exposure: EXP });
+  // PONS is 1 decimal, so 44.87 held rounds UP to 44.9: reduce-only caps it at the real size, and
+  // rounding up is what guarantees nothing is left behind.
+  assert.ok(p.order.sizeBase >= 44.87, `sent ${p.order.sizeBase}, holds 44.87 — must not leave a remainder`);
+  assert.ok(p.order.reduceOnly);
+});
+
 ok('escape targets exactly zero and is reduce-only', () => {
   const p = plan({ account: account(1000, [pos(44, 250)]), market: MARKET, decision: ESCAPE, exposure: EXP });
   assert.strictEqual(p.target, 0);
