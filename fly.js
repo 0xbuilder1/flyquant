@@ -348,9 +348,11 @@ function loadConfig() {
   // trick: the page learns where the current activity lives from the same file it already polls, so
   // nothing has to be configured twice and a half-finished upload can never leave the page pointing
   // at lights that do not exist yet.
+  const tUp = Date.now();
   try {
     const blob = require('./core/publish.js');
     const url = await blob.publishFile('activity.bin', Buffer.from(act.buf), 'application/octet-stream');
+    console.log(`  activity.bin (${(act.buf.length / 1024).toFixed(0)}KB) up in ${((Date.now() - tUp) / 1000).toFixed(1)}s`);
     // A PRIVATE BLOB'S URL IS NOT A URL THE PAGE CAN USE. Handing it one would point the browser at
     // something that answers 401 forever. Only a public blob's url is published; with a private
     // store the field stays absent and the page reads /api/activity, which has the token.
@@ -372,9 +374,11 @@ function loadConfig() {
   // ENTIRELY OPTIONAL, AND IT MAY NEVER BREAK A PASS. With no BLOB_READ_WRITE_TOKEN it does nothing
   // and says nothing; if the upload fails the pass has still done its job, which is to decide and,
   // where armed, to trade. Publishing is the last thing that happens for exactly that reason.
+  const tStats = Date.now();
   try {
     const url = await require('./core/publish.js').publishStats(stats, console.log);
-    if (url && arg('verbose', null) !== null) console.log(`stats published to ${url}`);
+    if (url) console.log(`  stats.json up in ${((Date.now() - tStats) / 1000).toFixed(1)}s` +
+      ` — the page sees this pass within its poll interval`);
   } catch (e) {
     console.error('could not publish stats (the pass itself was fine):', e.message);
   }
