@@ -3,6 +3,7 @@
  * Creator fees -> the fly's trading account. The only code in this repo that moves money on chain.
  *
  *   node keeper/harvest.js                    DRY: say exactly what it would do
+ *   node keeper/harvest.js --loop ...         THE TRACKER: watch for the launch, then keep harvesting
  *   PRIVATE_KEY=0x.. node keeper/harvest.js --broadcast --arm-harvest
  *   PRIVATE_KEY=0x.. node keeper/harvest.js --broadcast --arm-harvest --arm-fund
  *
@@ -111,7 +112,7 @@ function loadConfig() {
 const log = (...a) => console.log(...a);
 const short = (e) => (e.shortMessage || e.message || String(e)).split('\n')[0];
 
-(async () => {
+async function pass() {
   const cfg = loadConfig();
   const chain = defineChain({
     id: cfg.chain.id, name: cfg.chain.name,
@@ -168,6 +169,26 @@ const short = (e) => (e.shortMessage || e.message || String(e)).split('\n')[0];
 
   // ── LEG B ─────────────────────────────────────────────────────────────────────────────────
   log('\nLEG B · fund the Lighter account');
+
+  // THE PRE-LAUNCH GATE, AND IT IS THE MOST IMPORTANT LINE IN THIS FILE.
+  //
+  // Before the token exists there are no fees, so the only ETH in this wallet is the operator's own
+  // gas float. Leg B does not know that: it would wrap that gas, swap it into USDG and deposit it,
+  // leaving the wallet unable to pay for the very transactions that harvest fees later. The failure
+  // is silent, it looks like a successful deposit, and it happens on the first run.
+  //
+  // So nothing may be swapped or deposited until a token is wired. After the launch writes it, this
+  // opens on its own.
+  const tokenWired = () => {
+    const t = String((cfg.token && cfg.token.token) || '').trim().toLowerCase();
+    return /^0x[0-9a-f]{40}$/.test(t) && !/^0x0+$/.test(t);
+  };
+  if (!tokenWired()) {
+    log('  no token wired yet — leg B is closed, and the gas float is left alone.');
+    log('  (this is the guard that stops a pre-launch run swapping your gas into USDG)');
+    log(`\n${BROADCAST ? 'done' : 'dry run — nothing was sent'}`);
+    return;
+  }
   const owner = (cfg.fly && cfg.fly.deposit && cfg.fly.deposit.accountOwner) || me;
   const gasReserve = parseEther(String((cfg.distribute && cfg.distribute.gasReserveEth) || 0.02));
   const slippageBps = BigInt((cfg.fly && cfg.fly.deposit && cfg.fly.deposit.slippageBps) || 100);
@@ -228,4 +249,93 @@ const short = (e) => (e.shortMessage || e.message || String(e)).split('\n')[0];
   }
 
   log(`\n${BROADCAST ? 'done' : 'dry run — nothing was sent'}`);
-})().catch((e) => { console.error('failed:', short(e)); process.exitCode = 1; });
+}
+
+/**
+ * What is sitting there waiting to be moved, in ETH.
+ *
+ * Cheap enough to ask every poll: escrow credit plus whatever native balance is above the gas
+ * reserve. It is deliberately NOT exact — it decides whether moving money is worth a transaction,
+ * and a number that only has to clear a threshold does not need to be precise.
+ */
+async function assess() {
+  const cfg = loadConfig();
+  // its own client and its own idea of who we are: pass() builds those inside itself, and a poll
+  // that ran every 30s off pass()'s scope would be reaching into a function that is not running
+  const chain = defineChain({
+    id: cfg.chain.id, name: cfg.chain.name,
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [cfg.chain.rpc] } },
+  });
+  const pc = createPublicClient({ chain, transport: http(cfg.chain.rpc) });
+  const key = process.env.PRIVATE_KEY;
+  const acct = key ? privateKeyToAccount(key.startsWith('0x') ? key : `0x${key}`) : null;
+  const me = acct ? acct.address : (cfg.feeWallet && cfg.feeWallet.address);
+  if (!me || /^0x0+$/.test(me)) return { eth: 0, why: 'no fee wallet' };
+  const gasReserve = parseEther(String((cfg.distribute && cfg.distribute.gasReserveEth) || 0.02));
+  let credit = 0n;
+  try {
+    const escrow = cfg.pons && cfg.pons.escrow;
+    if (escrow) credit = await pc.readContract({ address: escrow, abi: escrowAbi, functionName: 'balanceOf', args: [me] });
+  } catch (e) { /* an unreadable escrow is simply no credit this poll */ }
+  const bal = await pc.getBalance({ address: me });
+  const free = bal > gasReserve ? bal - gasReserve : 0n;
+  return { eth: Number(formatEther(credit + free)), credit, free };
+}
+
+/**
+ * THE TRACKER. Watch for the launch, then harvest as often as it is worth doing.
+ *
+ *   node keeper/harvest.js --loop --broadcast --arm-harvest --arm-fund
+ *
+ * Polls on a short interval and moves money on two conditions, which exist for opposite reasons:
+ * a HARD threshold that fires immediately, because when fees are pouring in the right cadence is
+ * "now"; and a SOFT threshold on a slower timer, so a trickle still lands eventually. Below both it
+ * does nothing, because a deposit that costs more gas than it moves is a loss with extra steps.
+ *
+ * It says so only every few minutes while idle. A tracker that prints a line every 30 seconds is a
+ * tracker nobody reads.
+ */
+async function loop() {
+  const cfg = loadConfig();
+  const H = cfg.harvest || {};
+  const checkMs = (H.checkIntervalSec == null ? 30 : H.checkIntervalSec) * 1000;
+  const baseMs = (H.baseCadenceMin == null ? 5 : H.baseCadenceMin) * 60000;
+  const hardEth = Number(H.hardThresholdEth == null ? 0.01 : H.hardThresholdEth);
+  const softEth = Number(H.softThresholdEth == null ? 0.001 : H.softThresholdEth);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  log(`loop: polling every ${checkMs / 1000}s · harvest now at ${hardEth} ETH, else at ${softEth} ETH every ${baseMs / 60000}m`);
+  let lastRun = 0, lastSaid = 0, lastIdle = 0;
+  for (;;) {
+    try {
+      const cur = loadConfig();
+      const t = String((cur.token && cur.token.token) || '').toLowerCase();
+      if (!/^0x[0-9a-f]{40}$/.test(t) || /^0x0+$/.test(t)) {
+        if (Date.now() - lastIdle >= 300000) {
+          log('waiting for the launch — no token wired, gas float untouched');
+          lastIdle = Date.now();
+        }
+        await sleep(checkMs);
+        continue;
+      }
+      const a = await assess();
+      const hard = a.eth >= hardEth;
+      const soft = (Date.now() - lastRun >= baseMs) && a.eth >= softEth;
+      if (hard || soft) {
+        log(`\nHARVEST — ${a.eth.toFixed(5)} ETH waiting (${hard ? 'over the immediate threshold' : 'on the slow cadence'})`);
+        await pass();
+        lastRun = Date.now();
+      } else if (Date.now() - lastSaid >= 300000) {
+        log(`hold — ${a.eth.toFixed(5)} ETH waiting (moves at ${hardEth} now, ${softEth} every ${baseMs / 60000}m)`);
+        lastSaid = Date.now();
+      }
+    } catch (e) {
+      log(`loop error (continuing): ${short(e)}`);
+    }
+    await sleep(checkMs);
+  }
+}
+
+(has('loop') ? loop() : pass())
+  .catch((e) => { console.error('failed:', short(e)); process.exitCode = 1; });

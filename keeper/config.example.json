@@ -124,5 +124,12 @@
       "minDepositUsdg": 1.0,
       "slippageBps": 100
     }
+  },
+  "harvest": {
+    "_note": "THE TRACKER'S CADENCE, for `--loop`. It polls every checkIntervalSec and moves money on two conditions that exist for opposite reasons: hardThresholdEth fires IMMEDIATELY, because when fees are arriving fast the right cadence is 'now'; softThresholdEth fires on the slower baseCadenceMin timer, so a trickle still lands eventually. Below both it does nothing, because a deposit costing more gas than it moves is a loss with extra steps. Thresholds are in ETH rather than USD so nothing here needs a price feed to decide whether to spend gas.",
+    "checkIntervalSec": 30,
+    "baseCadenceMin": 5,
+    "hardThresholdEth": 0.01,
+    "softThresholdEth": 0.001
   }
 }
