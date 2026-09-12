@@ -369,6 +369,11 @@ async function findLaunch(pc, factory, creator, since, from0) {
       const l = logs[logs.length - 1];                        // newest in the window
       const token = '0x' + l.topics[1].slice(26);
       const r = await pc.call({ to: factory, data: '0x3cf28b5a' + pad32(token).slice(2) }).catch(() => null);
+      if (!r || !r.data || r.data === '0x') {
+        // the log said a token launched here and the factory will not describe it. Worth saying:
+        // silently returning "no launch" from this point looks identical to never having found one.
+        console.log(`  found a launch log for ${token} but the factory did not describe it — retrying next poll`);
+      }
       if (r && r.data && r.data !== '0x') {
         const d = r.data;
         return {
@@ -487,7 +492,14 @@ async function loop() {
               // the deep first scan and wired straight back in, and the watcher would then stop
               // looking, never seeing the launch it was actually started for.
               (cur.launch && cur.launch.watchFromBlock) ? BigInt(cur.launch.watchFromBlock) : null
-            ).catch(() => null)
+            ).catch((e) => {
+              // NOT SWALLOWED. This used to be .catch(() => null), so a rate-limited scan produced
+              // no result, advanced nothing and printed nothing -- the loop went on saying it was
+              // watching while every single look was failing. A watcher that cannot tell you it is
+              // blind is worse than one that stops.
+              log(`scan failed (will retry in ${checkMs / 1000}s): ${short(e)}`);
+              return null;
+            })
           : null;
         const found = res && !res.none ? res : null;
         if (res && res.none) scannedTo = res.tip;             // caught up; next look starts here
@@ -502,7 +514,7 @@ async function loop() {
         if (found) {
           log(`found a launch by this wallet whose fees pay ${found.feeRecipient} — not us. Ignoring.`);
         }
-        if (Date.now() - lastIdle >= 600000) {
+        if (Date.now() - lastIdle >= 120000) {
           log(`still watching — nothing from ${by} yet (block ${scannedTo || '?'})`);
           lastIdle = Date.now();
         }
