@@ -405,7 +405,29 @@ function loadConfig() {
       // Only when the fly's own decision produced nothing, so this can never pre-empt it and at
       // most one order leaves per pass. The fly manages one market a pass; the book is not one
       // market, and without this a position it turned away from would simply never be closed.
-      const staleMs = Number((tradeCfg.exposure && tradeCfg.exposure.staleAfterMinutes) || 0) * 60000;
+      // ── A FULL BOOK ROTATES INSTEAD OF REFUSING ──────────────────────────────────────────────
+      //
+      // With every slot taken, a fly that turns to a market it wants could do nothing at all, and
+      // said so: "all 10 slots are full". Correct, and useless — the animal had made a decision and
+      // the desk had no way to act on it, so it sat fully deployed until something aged out half an
+      // hour later.
+      //
+      // When the book is full it now closes the position it has gone LONGEST WITHOUT FACING. That is
+      // not a coin flip dressed up as a reason: where the fly has been looking is a real property of
+      // the animal, it is the same measure staleAfterMinutes already uses, and the market it has
+      // ignored for longest is by its own behaviour the one it is least interested in.
+      //
+      // The threshold drops to zero for this case only. Normally a position must be untouched for
+      // staleAfterMinutes before it is closed; when the fly actively wants the slot, the oldest
+      // untouched one goes regardless of how long that has been.
+      const wantsRoom = plan && !plan.order && /slots are full/.test(plan.reason || '');
+      const staleMs = wantsRoom
+        ? 0
+        : Number((tradeCfg.exposure && tradeCfg.exposure.staleAfterMinutes) || 0) * 60000;
+      if (wantsRoom) {
+        console.log(`the book is full and the fly turned to ${pass.chosen.symbol}` +
+          ' — closing whatever it has looked at least recently to make room');
+      }
       const forgotten = position.stale({ account, lastSeen, staleAfterMs: staleMs });
       if (forgotten.length) {
         const f = forgotten[0];
@@ -414,7 +436,11 @@ function loadConfig() {
           market: { symbol: f.symbol, marketId: f.marketId, mark: Math.abs(f.notional) / Math.max(f.size, 1e-12),
                     minQuote: 0, minBase: 0, sizeDecimals: 2 },
           decision: { action: 'escape', size: 1,
-                      why: f.neverSeen ? 'never faced by the fly' : `not faced for ${Math.round(f.ageMs / 60000)} minutes` },
+                      why: wantsRoom
+                        ? `the fly turned to ${pass.chosen.symbol} and has not faced ${f.symbol}` +
+                          ` in ${Math.max(1, Math.round(f.ageMs / 60000))} minutes`
+                        : (f.neverSeen ? 'never faced by the fly'
+                                       : `not faced for ${Math.round(f.ageMs / 60000)} minutes`) },
           exposure: tradeCfg.exposure,
         });
         if (closePlan.order) {
