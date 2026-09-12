@@ -134,6 +134,13 @@ async function depth(marketId, band = 0.005) {
   return {
     mid, band,
     best,                               // the touch — where a maker order rests
+    // THE LEVELS THEMSELVES, kept rather than summed away. Cost of crossing is not proportional to
+    // depth: a small order fills at the touch for nothing, while a large one walks levels that get
+    // progressively worse. Only the actual ladder can say which, so the ladder is carried.
+    levels: {
+      bid: bids.map((o) => [Number(o.price), Number(o.remaining_base_amount)]),
+      ask: asks.map((o) => [Number(o.price), Number(o.remaining_base_amount)]),
+    },
     bid: bidDepth,
     ask: askDepth,
     min: Math.min(bidDepth, askDepth),

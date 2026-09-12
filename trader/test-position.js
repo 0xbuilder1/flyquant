@@ -220,11 +220,23 @@ ok('no depth reading means no depth cap, and the other caps still apply', () => 
 });
 
 console.log('\nmaker or taker — where the losses are allowed to come from');
-// TIGHT: cheap to cross, so the keeper crosses. WIDE: expensive, so it rests.
-const TOUCH = { min: 570008, bid: 570008, ask: 583515, spreadBps: 2.0, band: 0.005,
-                best: { bid: 0.6480, ask: 0.6490 } };
-const WIDE  = { min: 570008, bid: 570008, ask: 583515, spreadBps: 40.0, band: 0.005,
-                best: { bid: 0.6480, ask: 0.6490 } };
+// Both fixtures carry a real LADDER, because the cost of crossing is now measured by walking it
+// rather than modelled from a total. A fixture without levels would cost nothing to cross and every
+// maker test would silently become a taker test — which is exactly what happened first time.
+const PLENTY = 1e9;                               // enough size that one level fills any test order
+
+// TIGHT: the touch is 1.5bp from mid, so crossing is cheap and the keeper crosses.
+const TOUCH = {
+  min: 570008, bid: 570008, ask: 583515, spreadBps: 3.1, band: 0.005,
+  mid: 0.6485, best: { bid: 0.6484, ask: 0.6486 },
+  levels: { bid: [[0.6484, PLENTY]], ask: [[0.6486, PLENTY]] },
+};
+// WIDE: the touch is 7.7bp from mid, over the 6bp line, so it rests instead.
+const WIDE = {
+  min: 570008, bid: 570008, ask: 583515, spreadBps: 15.4, band: 0.005,
+  mid: 0.6485, best: { bid: 0.6480, ask: 0.6490 },
+  levels: { bid: [[0.6480, PLENTY]], ask: [[0.6490, PLENTY]] },
+};
 
 ok('an opening order rests post-only when crossing is expensive', () => {
   const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: WIDE });
@@ -328,8 +340,11 @@ ok('a WIDE book is rested in, not crossed', () => {
   assert.ok(p.crossCostBps > SCALE.takerMaxBps);
 });
 ok('a big order in a thin book prices ITSELF out of crossing', () => {
-  // same 2bp spread, but the order is a large share of the book, so the impact term dominates
-  const thin = { ...TOUCH, bid: 400, ask: 400, min: 400 };
+  // the touch is cheap, but there is almost nothing at it: the order walks into progressively
+  // worse levels and the AVERAGE fill is what makes crossing unaffordable
+  const thin = { ...TOUCH, bid: 400, ask: 400, min: 400,
+    levels: { bid: [[0.6484, 20], [0.6470, 20], [0.6300, PLENTY]],
+              ask: [[0.6486, 20], [0.6500, 20], [0.6700, PLENTY]] } };
   const p = plan({ account: account(100000), market: MARKET, decision: LONG, exposure: SCALE, depth: thin });
   assert.strictEqual(p.maker, true, 'impact should push it over the threshold on its own');
   assert.ok(p.crossCostBps > SCALE.takerMaxBps);

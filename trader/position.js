@@ -29,6 +29,42 @@
  */
 'use strict';
 
+/**
+ * What crossing would actually cost, in basis points from mid, by filling the order against the
+ * real ladder.
+ *
+ * Walk the levels on the side being taken, accumulate size and cost until the order is filled, and
+ * compare the volume-weighted average price to mid. That difference IS the cost — no model, no
+ * assumption about how depth is distributed.
+ *
+ * Returns Infinity when the book cannot fill the order at all, which correctly makes it
+ * unaffordable to cross and sends it to rest instead. Returns 0 with no ladder, so a market whose
+ * book could not be read is not falsely accused of being expensive.
+ */
+function walkBook(depth, side, baseSize) {
+  if (!depth || !depth.levels || !(baseSize > 0)) return 0;
+  const levels = side === 'buy' ? depth.levels.ask : depth.levels.bid;
+  if (!levels || !levels.length) return 0;
+  const mid = depth.mid;
+  if (!(mid > 0)) return 0;
+
+  let filled = 0, cost = 0;
+  for (const [price, size] of levels) {
+    const take = Math.min(size, baseSize - filled);
+    if (take <= 0) break;
+    filled += take;
+    cost += take * price;
+    if (filled >= baseSize) break;
+  }
+  if (filled <= 0) return Infinity;
+  // not enough book to fill it: crossing is not really on offer at any sensible price
+  if (filled < baseSize * 0.999) return Infinity;
+
+  const avg = cost / filled;
+  const bps = ((avg / mid) - 1) * 10000;
+  return side === 'buy' ? bps : -bps;          // both directions cost a POSITIVE number of bps
+}
+
 /** what the account currently holds in one market, signed. Long positive, short negative. */
 function currentNotional(account, marketId) {
   const p = (account.positions || []).find((x) => x.marketId === marketId);
@@ -119,25 +155,22 @@ function plan({ account, market, decision, chosen, exposure = {}, depth = null }
   // market comes back to it. The first live order proved that cost is real: it rested at the touch,
   // was accepted, and simply did not fill.
   //
-  // So the cost is estimated from the book already read this pass, rather than assumed:
+  // So the cost is measured by WALKING THE BOOK, not approximated:
   //
-  //     cost_bps = spread/2  +  (notional / depth) * band_bps
+  //     fill the order level by level, take the volume-weighted average price it would actually
+  //     get, and the distance from mid to that average IS the cost of crossing.
   //
-  // The first term is the touch. The second is how far into the book the order walks: consuming a
-  // quarter of the depth inside a half-percent band crosses roughly a quarter of that band, so a
-  // large order in a thin market prices itself out of crossing automatically while a small one in a
-  // deep market barely registers. Both terms come from measurements; only the threshold is a choice.
+  // The first version of this used `(notional / depth) * band_bps`, which is linear and therefore
+  // the wrong SHAPE. Real books are not evenly dense: an order that fits inside the touch costs
+  // nothing at all, while one that walks five levels costs much more than its share of the band.
+  // The ladder is already fetched every pass, so there is no reason to model what can be measured.
   //
   // takerMaxBps is the OPERATOR's line and lives in config beside the other numbers that are policy
   // rather than measurement. Above it the order rests post-only and accepts that it may not fill.
   const isExit = target === 0;
   const canRest = !isExit && !!(depth && depth.best);
-  const bandBps = (depth && depth.band ? depth.band : 0.005) * 10000;
   const side = delta > 0 ? 'buy' : 'sell';
-  const bookSide = depth ? (side === 'buy' ? depth.ask : depth.bid) : 0;
-  const halfSpreadBps = depth && depth.spreadBps ? depth.spreadBps / 2 : 0;
-  const impactBps = bookSide > 0 ? (Math.abs(delta) / bookSide) * bandBps : 0;
-  const crossCostBps = halfSpreadBps + impactBps;
+  const crossCostBps = walkBook(depth, side, Math.abs(delta) / mark);
   const takerMaxBps = exposure.takerMaxBps == null ? 6 : Number(exposure.takerMaxBps);
   // an exit always crosses; otherwise cross while it is cheap, rest when it is not
   const maker = canRest && crossCostBps > takerMaxBps;
