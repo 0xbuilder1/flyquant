@@ -3,7 +3,9 @@
  * Creator fees -> the fly's trading account. The only code in this repo that moves money on chain.
  *
  *   node keeper/harvest.js                    DRY: say exactly what it would do
- *   node keeper/harvest.js --loop ...         THE TRACKER: watch for the launch, then keep harvesting
+ *   node keeper/harvest.js --loop ...         THE TRACKER: start it BEFORE the launch. It watches
+ *                                             the chain for a launch by the fee wallet, wires the
+ *                                             token in from what it finds, and harvests from then on.
  *   PRIVATE_KEY=0x.. node keeper/harvest.js --broadcast --arm-harvest
  *   PRIVATE_KEY=0x.. node keeper/harvest.js --broadcast --arm-harvest --arm-fund
  *
@@ -252,6 +254,73 @@ async function pass() {
 }
 
 /**
+ * Has this wallet launched a token yet?
+ *
+ * The harvester is meant to be started BEFORE the launch and left alone. Waiting for a human to
+ * paste an address into config afterwards defeats that: the first fees accrue in the minutes right
+ * after launch, which is exactly when nobody is at a keyboard.
+ *
+ * So it asks the chain. PONS emits TokenLaunched with the creator as an indexed topic, so filtering
+ * by this wallet costs one cheap query per window rather than a scan of every launch on the factory.
+ *
+ *   topic0  TokenLaunched
+ *   topic1  token (indexed)
+ *   topic2  curve (indexed)
+ *   topic3  creator (indexed)  <- filtered server-side
+ *
+ * Then factory.getLaunchedToken(token) confirms who the fees ACTUALLY point at before anything is
+ * written down. Finding a launch by this creator is not the same as finding a launch that pays this
+ * creator -- the recipient can differ from the launcher -- and harvesting is gated on the recipient.
+ */
+const LAUNCH_TOPIC = '0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa43a89607';
+const pad32 = (a) => '0x' + a.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+const wordAddr = (d, i) => '0x' + d.slice(2 + i * 64 + 24, 2 + (i + 1) * 64);
+
+async function findLaunch(pc, factory, creator) {
+  const latest = await pc.getBlockNumber();
+  const span = 50000n;
+  const floor = latest > 400000n ? latest - 400000n : 0n;
+  for (let to = latest; to > floor;) {
+    const from = to - span + 1n > floor ? to - span + 1n : floor;
+    const logs = await pc.request({
+      method: 'eth_getLogs',
+      params: [{
+        address: factory,
+        fromBlock: '0x' + from.toString(16),
+        toBlock: '0x' + to.toString(16),
+        topics: [LAUNCH_TOPIC, null, null, pad32(creator)],
+      }],
+    }).catch(() => []);
+    if (logs && logs.length) {
+      const l = logs[logs.length - 1];                        // newest in the window
+      const token = '0x' + l.topics[1].slice(26);
+      const r = await pc.call({ to: factory, data: '0x3cf28b5a' + pad32(token).slice(2) }).catch(() => null);
+      if (r && r.data && r.data !== '0x') {
+        const d = r.data;
+        return {
+          token: wordAddr(d, 0),
+          curve: wordAddr(d, 1),
+          feeRecipient: wordAddr(d, 3),
+          launchBlock: Number(BigInt(l.blockNumber)),
+        };
+      }
+    }
+    if (from === floor) break;
+    to = from - 1n;
+  }
+  return null;
+}
+
+/** write what the chain told us into config, so nothing is ever typed in twice */
+function wireToken(found) {
+  const file = path.join(__dirname, 'config.json');
+  const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+  cfg.token = { ...(cfg.token || {}), token: found.token, curve: found.curve };
+  cfg.distribute = { ...(cfg.distribute || {}), launchBlock: found.launchBlock };
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n');
+}
+
+/**
  * What is sitting there waiting to be moved, in ETH.
  *
  * Cheap enough to ask every poll: escrow credit plus whatever native balance is above the gas
@@ -312,8 +381,32 @@ async function loop() {
       const cur = loadConfig();
       const t = String((cur.token && cur.token.token) || '').toLowerCase();
       if (!/^0x[0-9a-f]{40}$/.test(t) || /^0x0+$/.test(t)) {
+        // NOT IDLE -- WATCHING. Ask the chain whether this wallet has launched anything yet, and
+        // wire ourselves up from the answer. The first fees arrive in the minutes after launch,
+        // which is precisely when nobody is at a keyboard to paste an address into a config file.
+        const chain = defineChain({
+          id: cur.chain.id, name: cur.chain.name,
+          nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+          rpcUrls: { default: { http: [cur.chain.rpc] } },
+        });
+        const pc2 = createPublicClient({ chain, transport: http(cur.chain.rpc) });
+        const me = (cur.feeWallet && cur.feeWallet.address) || '';
+        const found = /^0x[0-9a-fA-F]{40}$/.test(me) && !/^0x0+$/.test(me)
+          ? await findLaunch(pc2, cur.pons.factory, me).catch(() => null)
+          : null;
+        if (found && found.feeRecipient.toLowerCase() === me.toLowerCase()) {
+          log(`\nLAUNCH FOUND at block ${found.launchBlock}`);
+          log(`  token ${found.token}`);
+          log(`  curve ${found.curve}`);
+          log('  fees point at this wallet — wiring it in and starting to harvest');
+          wireToken(found);
+          continue;                                            // straight into the harvest branch
+        }
+        if (found) {
+          log(`found a launch by this wallet whose fees pay ${found.feeRecipient} — not us. Ignoring.`);
+        }
         if (Date.now() - lastIdle >= 300000) {
-          log('waiting for the launch — no token wired, gas float untouched');
+          log('watching for a launch by ' + me + ' — gas float untouched');
           lastIdle = Date.now();
         }
         await sleep(checkMs);
