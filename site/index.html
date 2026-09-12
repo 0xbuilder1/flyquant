@@ -471,14 +471,14 @@ const GL = (() => {
   };
 })();
 
-const view = { yaw: 0, pitch: 0.13, zoom: 1.62, tBin: 0, fade: 7, drag: null, t: 0, free: false };
+const view = { yaw: 0, pitch: 0.13, zoom: 1.62, tBin: 0, fade: 7, drag: null, t: 0, free: false, freeUntil: 0 };
 const orbit = { labels: [], bands: 72, front: 36, heading: 0, chosen: null, oiMax: 1 };
 
 if (GL) {
   const cv = $('#cloud');
   cv.addEventListener('pointerdown', (e) => {
     view.drag = { x: e.clientX, y: e.clientY, yaw: view.yaw, pitch: view.pitch };
-    view.free = true;                       // once turned by hand, it stays where it was put
+    view.free = true;                       // hands drive while a hand is on it
     cv.setPointerCapture(e.pointerId);
   });
   cv.addEventListener('pointermove', (e) => {
@@ -486,7 +486,10 @@ if (GL) {
     view.yaw = view.drag.yaw + (e.clientX - view.drag.x) * 0.006;
     view.pitch = Math.max(-1.4, Math.min(1.4, view.drag.pitch + (e.clientY - view.drag.y) * 0.006));
   });
-  addEventListener('pointerup', () => { view.drag = null; });
+  // LET GO AND IT COMES BACK. Holding the view wherever it was dropped sounds respectful and reads
+  // as broken: the animal stops moving and the page looks frozen. So a few seconds after the hand
+  // leaves, it eases back to the sway rather than snapping -- a jump would be worse than staying put.
+  addEventListener('pointerup', () => { view.drag = null; view.freeUntil = Date.now() + 3500; });
 }
 
 function frame(){
@@ -496,7 +499,20 @@ function frame(){
     // and they are only there from the front. So the idle motion is a slow sway either side of
     // frontal, and anyone who wants to see the back can drag it there, after which it stays where
     // they put it.
-    if (!view.drag && !view.free) { view.t += 0.0022; view.yaw = Math.sin(view.t) * 0.34; }
+    if (!view.drag) {
+      view.t += 0.0022;
+      const home = Math.sin(view.t) * 0.34;
+      if (!view.free) {
+        view.yaw = home;
+      } else if (view.freeUntil && Date.now() > view.freeUntil) {
+        // ease, do not snap: 4% of the remaining gap a frame is about a second and a half back
+        view.yaw += (home - view.yaw) * 0.04;
+        view.pitch += (0.13 - view.pitch) * 0.04;
+        if (Math.abs(home - view.yaw) < 0.01 && Math.abs(0.13 - view.pitch) < 0.01) {
+          view.yaw = home; view.pitch = 0.13; view.free = false; view.freeUntil = 0;
+        }
+      }
+    }
     view.tBin = (view.tBin + 0.11) % (bins + 9);
     GL.draw(view);
     placeOrbit();
