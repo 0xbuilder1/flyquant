@@ -116,7 +116,9 @@ const has = (n) => process.argv.includes(`--${n}`);
       maxSlippage: cfg.lighter.maxSlippage,
       sizeDecimals: pass.chosen.market.sizeDecimals,
       priceDecimals: pass.chosen.market.priceDecimals,
-      expirySeconds: 600,                          // ten minutes to fill, then it dies on its own
+      // 0 = the SDK's own default expiry. The signature covers this field, so for the FIRST order
+      // nothing about it is guessed; the loop uses a short expiry so unfilled orders die on their own.
+      expirySeconds: Number(arg('expiry', 0)),
       armed: live,
       stateRoot: path.join(__dirname, 'state'),
     },
