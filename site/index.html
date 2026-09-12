@@ -1013,7 +1013,9 @@ frame();
 loadCloud();
 renderScaling();
 tick();
-setInterval(tick, 15000);
+// A pass lands every few minutes, so polling is cheap and the only thing it buys is how quickly
+// the page notices. Five seconds, against a 78KB file with no CDN hold on it.
+setInterval(tick, 5000);
 setInterval(() => { if (latest) age(latest); }, 1000);
 addEventListener('resize', () => { if (latest) drawCurve(latest.equityCurve || []); });
 </script>

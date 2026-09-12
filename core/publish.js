@@ -67,13 +67,16 @@ async function publishStats(stats, log) {
       contentType: 'application/json',
       allowOverwrite: true,
       addRandomSuffix: false,                          // stable URL across rounds
-      cacheControlMaxAge: 60,
+      // ZERO, AND IT IS THE WHOLE REASON THE PAGE LAGGED. This file is the live one: a CDN copy
+      // sixty seconds old is worse than no answer, because it looks current. It is 78KB and it
+      // changes every pass, so there is nothing here worth caching.
+      cacheControlMaxAge: 0,
     });
     lastBody = body;
     if (!announced && log) {
       announced = true;
       log(`publishing stats to ${res.url}`);
-      log('set STATS_BLOB_URL to that in Vercel, and the site serves it from /api/stats.');
+      log('set FLY_STATS_URL to that in Vercel, and the site serves it from /api/stats.');
     }
     return res.url;
   } catch (e) {
@@ -103,7 +106,9 @@ async function publishFile(pathname, body, contentType) {
     contentType: contentType || 'application/octet-stream',
     allowOverwrite: true,
     addRandomSuffix: false,           // stable URL, so the page never has to be told a new one
-    cacheControlMaxAge: 30,
+    // the page appends ?t=<pass timestamp>, so each pass is a new URL and the cache is busted by
+    // the request. Short anyway, so a stale copy cannot outlive a pass.
+    cacheControlMaxAge: 10,
   });
   return res.url;
 }
