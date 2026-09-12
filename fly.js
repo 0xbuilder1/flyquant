@@ -68,8 +68,8 @@ function loadConfig() {
     await new Promise((r) => setTimeout(r, warmup * 1000));
   }
   const snap = await lighter.snapshot();
-  const markets = lighter.toArena(snap, prev);
-  const seats = seatMarkets(markets);
+  let markets = lighter.toArena(snap, prev);
+  let seats = seatMarkets(markets);
   lighter.savePrevious(snap);
   console.log(`lighter: ${markets.length} markets, window ${prev ? Math.round((snap.at - prev.at) / 1000) + 's' : 'none'}`);
 
@@ -222,10 +222,11 @@ function loadConfig() {
       const m = queue.pop();
       try {
         const d = await lighter.depth(m.marketId);
-        // a market with no book has no wind, which is true rather than merely unknown
-        if (d && d.bid + d.ask > 0) {
-          depthOf[m.symbol] = { bid: d.bid, ask: d.ask, spreadBps: d.spreadBps, at: Date.now() };
-        }
+        // AN EMPTY BOOK IS RECORDED, NOT SKIPPED. "We read it and there is nothing there" and "we
+        // never managed to read it" are different facts and only one of them is grounds for taking a
+        // market out of the panorama. Storing the zero keeps that distinction: senses already treat
+        // bid+ask of zero as no wind, and the universe filter needs to see it to act on it.
+        if (d) depthOf[m.symbol] = { bid: d.bid, ask: d.ask, spreadBps: d.spreadBps, at: Date.now() };
       } catch (e) { /* one unreadable book must not cost the pass */ }
     }
   }));
@@ -234,6 +235,42 @@ function loadConfig() {
     ` — the only channel that can make it short`);
 
   const ctx = { depthOf };
+  // ── WHAT THIS DESK CAN ACTUALLY OPERATE IN ──────────────────────────────────────────────────
+  //
+  // Four of the 57 have NO BOOK AT ALL within half a percent of mid -- RGTI, AI, WULF and USO were
+  // showing $0 on their thin side with half-spreads of 151, 117, 79 and 55 basis points. They are
+  // not wide markets, they are absent ones. The fly turning to one costs a whole pass and produces
+  // either a refusal or a resting order in a book nothing trades against.
+  //
+  // THIS IS THE DESK'S DECISION, NOT THE ANIMAL'S, and the distinction is the reason it lives here
+  // rather than in brain/. Nothing about the fly changed: it still sees a panorama and still turns
+  // by the same asymmetry. What changed is which markets the desk is willing to put in front of it,
+  // on exactly the same grounds as the depth cap -- a size you can enter and cannot leave is a trap,
+  // and a market with no book is that trap with the size set to everything.
+  //
+  // The floor is a dollar figure and it is measured live, so a market that comes back to life is
+  // back in the panorama on the next pass without anybody editing anything. At 0 the filter is off
+  // and all 57 are seated, which is the behaviour this had before.
+  const minBook = Number((cfg.trade && cfg.trade.exposure && cfg.trade.exposure.minBookUsd) || 0);
+  if (minBook > 0) {
+    const before = markets.length;
+    const dropped = [];
+    markets = markets.filter((m) => {
+      const d = depthOf[m.symbol];
+      // never seen is never excluded: a book we failed to read is not a book we know is empty
+      if (!d) return true;
+      const thin = Math.min(d.bid, d.ask);
+      if (thin >= minBook) return true;
+      dropped.push(`${m.symbol} ($${Math.round(thin)})`);
+      return false;
+    });
+    if (dropped.length) {
+      console.log(`universe: ${markets.length}/${before} markets — no book to trade against in ` +
+        dropped.join(', '));
+      seats = seatMarkets(markets);
+    }
+  }
+
   ctx.ambient = senses.ambient(markets, ctx);
   try {
     const bf = path.join(__dirname, 'keeper', 'state', 'books.json');
