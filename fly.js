@@ -251,8 +251,32 @@ function loadConfig() {
   // The floor is a dollar figure and it is measured live, so a market that comes back to life is
   // back in the panorama on the next pass without anybody editing anything. At 0 the filter is off
   // and all 57 are seated, which is the behaviour this had before.
-  const minBook = Number((cfg.trade && cfg.trade.exposure && cfg.trade.exposure.minBookUsd) || 0);
-  if (minBook > 0) {
+  // A SLOT IS A TENTH OF THE ACCOUNT; A MARKET THAT CANNOT TAKE ONE SHOULD NOT HOLD ONE.
+  //
+  // The depth cap already stops the fly buying more than a book can carry, but it does it AFTER the
+  // slot is spent. So a market with $776 on its thin side took a $194 position -- correctly sized,
+  // and 96% of that slot's capacity wasted, with the slot still counted against the ten. Nine more
+  // of those and the account is fully "deployed" holding two thousand dollars.
+  //
+  // So a market has to be able to absorb at least minSlotFraction of a slot to be seated at all.
+  // That is derived from equity rather than typed: the slot is equity/slots x leverage and the cap
+  // is depthFraction of the thin side, so as the account grows the bar rises with it and thin
+  // markets drop out on their own. Which is correct -- a bigger desk genuinely cannot operate in
+  // them, and the alternative is a book of tokens that cannot move the account either way.
+  //
+  // minBookUsd stays as an absolute floor for books that are simply absent.
+  const exp = (cfg.trade && cfg.trade.exposure) || {};
+  const minBook = Number(exp.minBookUsd || 0);
+  const minSlotFraction = Number(exp.minSlotFraction || 0);
+  const slotNotional = account && account.equity > 0 && exp.slots
+    ? (account.equity / Number(exp.slots)) * Number(exp.leverage || 1)
+    : 0;
+  const needThin = minSlotFraction > 0 && slotNotional > 0 && exp.depthFraction > 0
+    ? (slotNotional * minSlotFraction) / Number(exp.depthFraction)
+    : 0;
+  const floorUsd = Math.max(minBook, needThin);
+
+  if (floorUsd > 0) {
     const before = markets.length;
     const dropped = [];
     markets = markets.filter((m) => {
@@ -260,13 +284,13 @@ function loadConfig() {
       // never seen is never excluded: a book we failed to read is not a book we know is empty
       if (!d) return true;
       const thin = Math.min(d.bid, d.ask);
-      if (thin >= minBook) return true;
+      if (thin >= floorUsd) return true;
       dropped.push(`${m.symbol} ($${Math.round(thin)})`);
       return false;
     });
     if (dropped.length) {
-      console.log(`universe: ${markets.length}/${before} markets — no book to trade against in ` +
-        dropped.join(', '));
+      console.log(`universe: ${markets.length}/${before} markets — need $${Math.round(floorUsd).toLocaleString()}` +
+        ` on the thin side to be worth a slot; short of it: ${dropped.join(', ')}`);
       seats = seatMarkets(markets);
     }
   }
