@@ -19,6 +19,37 @@ const PATHNAME = process.env.PONS_BLOB_PATH || process.env.ROBIN_BLOB_PATH || 's
 let announced = false;
 let lastBody = '';
 
+
+/**
+ * Write a blob without being told what kind of store this is.
+ *
+ * Vercel Blob stores are public or private, a store created today defaults to private, and a public
+ * write into a private store is refused outright: "Cannot use public access on a private store."
+ * Which kind the operator made is not something the keeper should have to be configured with, so it
+ * tries public, and on that one specific refusal switches to private and remembers for the rest of
+ * the process.
+ *
+ * Public is preferred when it is available because the page can then read the blob straight off the
+ * CDN — every byte otherwise goes through a serverless function, and the activity alone is 273KB a
+ * pass. BLOB_ACCESS pins it either way if the operator would rather not have it guess.
+ */
+let access = process.env.BLOB_ACCESS || 'public';
+async function putEither(pathname, body, opts) {
+  try {
+    return await put(pathname, body, { ...opts, access });
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    if (access === 'public' && /private store|public access/i.test(msg)) {
+      access = 'private';
+      return put(pathname, body, { ...opts, access });
+    }
+    throw e;
+  }
+}
+
+/** which kind of store we ended up writing to — the caller needs it to know if a url is fetchable */
+function blobAccess() { return access; }
+
 /**
  * @param {object} stats  the same object written to state/stats.json
  * @returns {Promise<string|null>} the public URL, or null if publishing is not configured
@@ -31,8 +62,7 @@ async function publishStats(stats, log) {
   if (body === lastBody) return null;                  // nothing changed; do not burn a write
 
   try {
-    const res = await put(PATHNAME, body, {
-      access: 'public',
+    const res = await putEither(PATHNAME, body, {
       token,
       contentType: 'application/json',
       allowOverwrite: true,
@@ -68,8 +98,7 @@ async function publishStats(stats, log) {
 async function publishFile(pathname, body, contentType) {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
   if (!token || !put) return null;
-  const res = await put(pathname, body, {
-    access: 'public',
+  const res = await putEither(pathname, body, {
     token,
     contentType: contentType || 'application/octet-stream',
     allowOverwrite: true,
@@ -79,4 +108,4 @@ async function publishFile(pathname, body, contentType) {
   return res.url;
 }
 
-module.exports = { publishStats, publishFile };
+module.exports = { publishStats, publishFile, blobAccess };

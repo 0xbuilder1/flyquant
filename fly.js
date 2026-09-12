@@ -348,14 +348,16 @@ function loadConfig() {
   // trick: the page learns where the current activity lives from the same file it already polls, so
   // nothing has to be configured twice and a half-finished upload can never leave the page pointing
   // at lights that do not exist yet.
-  let activityUrl = null;
   try {
-    activityUrl = await require('./core/publish.js')
-      .publishFile('activity.bin', Buffer.from(act.buf), 'application/octet-stream');
+    const blob = require('./core/publish.js');
+    const url = await blob.publishFile('activity.bin', Buffer.from(act.buf), 'application/octet-stream');
+    // A PRIVATE BLOB'S URL IS NOT A URL THE PAGE CAN USE. Handing it one would point the browser at
+    // something that answers 401 forever. Only a public blob's url is published; with a private
+    // store the field stays absent and the page reads /api/activity, which has the token.
+    if (url && blob.blobAccess() === 'public') stats.activityUrl = url;
   } catch (e) {
     console.error('could not publish the activity (the page will use the committed one):', e.message);
   }
-  if (activityUrl) stats.activityUrl = activityUrl;
   stats.pass.placed = act.placed;
   stats.pass.bins = publish.RASTER_BINS;
 
